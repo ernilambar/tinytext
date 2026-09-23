@@ -36,8 +36,13 @@ Thumbs.db
 *.zip
 *~
 
+# Build artifacts
+.*.bun-build
+
 # Project folders
 /build/
+/bundle/
 /deploy/
+/dist/
 /node_modules/
 /vendor/

@@ -4,9 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun --hot app.tsx",
-    "start": "bun app.tsx",
-    "typecheck": "tsc --noEmit"
+    "dev": "bun --hot src/main.tsx",
+    "start": "bun src/main.tsx",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "build:bin": "bun build --compile src/main.tsx --outfile dist/Tinytext && cp node_modules/@gpuix/native-darwin-arm64/gpuix-native.darwin-arm64.node dist/",
+    "build:app": "bun run build:bin && cargo packager --release --config \"$(bun -e 'process.stdout.write(JSON.stringify(await Bun.file(\"packager.json\").json()))')\"",
+    "build:dmg": "bun run build:bin && cargo packager --release --config \"$(bun -e 'process.stdout.write(JSON.stringify(await Bun.file(\"packager-dmg.json\").json()))')\""
   },
   "dependencies": {
     "@gpuix/native": "0.10.0",
@@ -14,6 +18,7 @@
     "react": "19.3.0"
   },
   "devDependencies": {
+    "@types/bun": "^1.4.2",
     "@types/react": "19.3.0",
     "typescript": "7.0.2"
   }
