@@ -37,11 +37,13 @@ bun run build:dmg
 
 Outputs are written to `dist/` and `bundle/`. Launch the app bundle with `open bundle/Tinytext.app`. Builds must run on macOS. These bundles are unsigned; for local testing, use Finder's Open action if Gatekeeper blocks the first launch. Signing and notarization are needed for distribution to other Macs.
 
+## Editing files
+
+Use **Open** or **⌘O** to open a UTF-8 text file. Use **Save** or **⌘S** to save changes; the first save opens the native Save As panel. When opening another file with unsaved changes, Tinytext asks whether to save, discard, or cancel. File access errors appear below the editor.
+
 ## Development checks
 
 ```sh
 bun test
 bun run typecheck
 ```
-
-The editor currently keeps text in memory for the open session; files are not saved yet.
