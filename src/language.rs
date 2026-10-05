@@ -17,7 +17,11 @@ pub(crate) const LANGUAGES: [&str; 11] = [
 ];
 
 pub(crate) fn language_for(path: &Path) -> SharedString {
-    match path.extension().and_then(|ext| ext.to_str()) {
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(str::to_ascii_lowercase);
+    match extension.as_deref() {
         Some("rs") => "Rust".into(),
         Some("toml") => "TOML".into(),
         Some("json") => "JSON".into(),
@@ -70,6 +74,17 @@ mod tests {
             ("view.phtml", "PHP"),
         ];
         for (file, language) in cases {
+            assert_eq!(language_for(Path::new(file)), language, "{file}");
+        }
+    }
+
+    #[test]
+    fn language_for_ignores_extension_case() {
+        for (file, language) in [
+            ("MAIN.RS", "Rust"),
+            ("Index.HTML", "HTML"),
+            ("a.Md", "Markdown"),
+        ] {
             assert_eq!(language_for(Path::new(file)), language, "{file}");
         }
     }
