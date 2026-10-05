@@ -3,12 +3,13 @@ use std::path::{Path, PathBuf};
 
 use gpui_kit::base::StyledExt as _;
 use gpui_kit::component::{
-    ActiveTheme as _, Icon, IconName, Sizable as _, Size, Theme, ThemeMode,
+    ActiveTheme as _, Icon, IconName, Sizable as _, Size, Theme, ThemeMode, WindowExt as _,
     badge::Badge,
-    button::{Button, ButtonVariants as _},
+    button::{Button, ButtonVariant, ButtonVariants as _},
     input::{Editor, EditorState, InputEvent},
     list::ListItem,
     menu::{DropdownMenu as _, PopupMenuItem},
+    notification::Notification,
     resizable::{h_resizable, resizable_panel},
     status_bar::StatusBar,
     tab::{Tab, TabBar},
@@ -33,7 +34,7 @@ gpui_kit::actions!(
 );
 
 const SIDEBAR_WIDTH: Pixels = px(240.);
-const LANGUAGES: [&str; 8] = [
+const LANGUAGES: [&str; 11] = [
     "Plain Text",
     "Rust",
     "TOML",
@@ -42,6 +43,9 @@ const LANGUAGES: [&str; 8] = [
     "JavaScript",
     "TypeScript",
     "Python",
+    "HTML",
+    "CSS",
+    "PHP",
 ];
 
 struct OpenTab {
@@ -208,7 +212,7 @@ impl TinytextApp {
         .detach();
     }
 
-    fn on_save_file(&mut self, _: &SaveFile, _window: &mut Window, cx: &mut Context<Self>) {
+    fn on_save_file(&mut self, _: &SaveFile, window: &mut Window, cx: &mut Context<Self>) {
         let Some(ix) = self.active_tab else {
             return;
         };
@@ -218,38 +222,58 @@ impl TinytextApp {
         let id = tab.editor.entity_id();
 
         if let Some(path) = tab.path.clone() {
-            self.save_editor(id, path, cx);
+            self.save_editor(id, path, window, cx);
             return;
         }
 
         let directory = self.workspace_root.clone();
         let receiver = cx.prompt_for_new_path(&directory, Some("untitled.txt"));
 
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(path))) = receiver.await {
-                this.update(cx, |this, cx| this.save_editor(id, path, cx))
-                    .ok();
+                this.update_in(cx, |this, window, cx| {
+                    this.save_editor(id, path, window, cx)
+                })
+                .ok();
             }
         })
         .detach();
     }
 
-    fn save_editor(&mut self, id: EntityId, path: PathBuf, cx: &mut Context<Self>) {
+    fn save_editor(
+        &mut self,
+        id: EntityId,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(tab) = self.tabs.iter().find(|tab| tab.editor.entity_id() == id) else {
             return;
         };
         let text = tab.editor.read(cx).text().to_string();
+        let filename = file_name(&path);
 
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             let write_path = path.clone();
             let result = cx
                 .background_executor()
                 .spawn(async move { std::fs::write(write_path, text) })
                 .await;
-            if result.is_ok() {
-                this.update(cx, |this, cx| this.finish_save(id, path, cx))
-                    .ok();
-            }
+
+            this.update_in(cx, |this, window, cx| match result {
+                Ok(()) => {
+                    this.finish_save(id, path.clone(), cx);
+                    window
+                        .push_notification(Notification::success(format!("Saved {filename}")), cx);
+                }
+                Err(error) => {
+                    window.push_notification(
+                        Notification::error(format!("Could not save {filename}: {error}")),
+                        cx,
+                    );
+                }
+            })
+            .ok();
         })
         .detach();
     }
@@ -301,9 +325,46 @@ impl TinytextApp {
     }
 
     fn close_tab(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if ix >= self.tabs.len() {
+        let Some((id, dirty, title)) = self
+            .tabs
+            .get(ix)
+            .map(|tab| (tab.editor.entity_id(), tab.dirty, tab.title.clone()))
+        else {
+            return;
+        };
+
+        if !dirty {
+            self.remove_tab(id, window, cx);
             return;
         }
+
+        let entity = cx.entity();
+        window.open_alert_dialog(cx, move |alert, _window, _cx| {
+            let entity = entity.clone();
+            alert
+                .confirm()
+                .title("Unsaved Changes")
+                .description(format!(
+                    "\"{title}\" has unsaved changes. Close it without saving?"
+                ))
+                .ok_text("Close Without Saving")
+                .ok_variant(ButtonVariant::Danger)
+                .cancel_text("Keep Editing")
+                .on_ok(move |_, window, cx| {
+                    entity.update(cx, |this, cx| this.remove_tab(id, window, cx));
+                    true
+                })
+        });
+    }
+
+    fn remove_tab(&mut self, id: EntityId, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(ix) = self
+            .tabs
+            .iter()
+            .position(|tab| tab.editor.entity_id() == id)
+        else {
+            return;
+        };
 
         self.tabs.remove(ix);
         self.active_tab = if self.tabs.is_empty() {
@@ -711,6 +772,9 @@ fn language_for(path: &Path) -> SharedString {
         Some("js") => "JavaScript".into(),
         Some("ts") => "TypeScript".into(),
         Some("py") => "Python".into(),
+        Some("html") | Some("htm") => "HTML".into(),
+        Some("css") | Some("scss") => "CSS".into(),
+        Some("php") | Some("phtml") => "PHP".into(),
         _ => "Plain Text".into(),
     }
 }
@@ -724,6 +788,9 @@ fn editor_language_id(language: &str) -> &'static str {
         "JavaScript" => "javascript",
         "TypeScript" => "typescript",
         "Python" => "python",
+        "HTML" => "html",
+        "CSS" => "css",
+        "PHP" => "php",
         _ => "plaintext",
     }
 }
