@@ -1,49 +1,31 @@
-# Tinytext
+# GPUI Text Editor
 
-A minimal native macOS text editor prototype built with GPUIX, React, and Bun.
+A native desktop text editor built with [GPUI Kit](https://gpui-kit.com) (GPUI + GPUI
+Component) in Rust.
 
-## Run on macOS
+## Status
 
-Requires [Bun](https://bun.sh/).
+Phase 1 — Project setup and core shell. The app opens a window containing the top-level
+layout slots (top bar, sidebar, editor, status bar) as placeholders.
 
-```sh
-bun install
-bun run dev
-```
+## Requirements
 
-This opens the native app and enables hot reload. Use `bun run start` to launch without hot reload.
+- Rust 1.92 or later
+- macOS 15 or later with Xcode Command Line Tools (`xcode-select --install`)
 
-## Build macOS apps
-
-Packaging targets **Apple Silicon macOS (arm64)**, matching GPUIX's published native runtime. Install [Rust](https://www.rust-lang.org/tools/install) and the `cargo-packager` CLI:
+## Run
 
 ```sh
-cargo install cargo-packager --locked
+cargo run
 ```
 
-Build a standalone executable with its required native sidecar, or a Finder-launchable `.app`:
+## Layout
 
-```sh
-bun run build:bin
-./dist/Tinytext
-bun run build:app
-```
+- Top: MenuBar & Tabs
+- Middle: File Explorer sidebar | main editor view
+- Bottom: Status bar
 
-Build a `.dmg` installer (also outputs the `.app`):
+## Roadmap
 
-```sh
-bun run build:dmg
-```
-
-Outputs are written to `dist/` and `bundle/`. Launch the app bundle with `open bundle/Tinytext.app`. Builds must run on macOS. These bundles are unsigned; for local testing, use Finder's Open action if Gatekeeper blocks the first launch. Signing and notarization are needed for distribution to other Macs.
-
-## Editing files
-
-Use **Open** or **⌘O** to open a UTF-8 text file. Use **Save** or **⌘S** to save changes; the first save opens the native Save As panel. When opening another file with unsaved changes, Tinytext asks whether to save, discard, or cancel. File access errors appear below the editor.
-
-## Development checks
-
-```sh
-bun test
-bun run typecheck
-```
+Phase 1 project setup and shell · Phase 2 component tree · Phase 3 buffer logic ·
+Phase 4 syntax highlighting and advanced features.

@@ -37,12 +37,4 @@ Thumbs.db
 *~
 
 # Build artifacts
-.*.bun-build
-
-# Project folders
-/build/
-/bundle/
-/deploy/
-/dist/
-/node_modules/
-/vendor/
+/target/
