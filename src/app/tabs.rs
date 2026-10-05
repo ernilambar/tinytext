@@ -219,6 +219,10 @@ impl TinytextApp {
 
         if let Some(tab) = self.active_tab.and_then(|ix| self.tabs.get(ix)) {
             tab.editor.update(cx, |state, cx| state.focus(window, cx));
+        } else {
+            // The closed editor held focus; without it no window action (About,
+            // Quit, New File…) is reachable from the menu bar.
+            self.focus_handle.focus(window, cx);
         }
         self.save_session();
         cx.notify();

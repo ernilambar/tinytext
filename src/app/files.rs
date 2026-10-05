@@ -16,6 +16,11 @@ impl TinytextApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if path.is_dir() {
+            self.open_folder(path, cx);
+            return;
+        }
+
         if let Some(ix) = self
             .tabs
             .iter()
