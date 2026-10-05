@@ -21,6 +21,7 @@ gpui_kit::actions!(
     [
         NewFile,
         OpenFile,
+        OpenFolder,
         SaveFile,
         CloseTab,
         Quit,
@@ -60,7 +61,7 @@ struct OpenTab {
 
 struct TinytextApp {
     focus_handle: FocusHandle,
-    workspace_root: PathBuf,
+    workspace_root: Option<PathBuf>,
     expanded: HashSet<PathBuf>,
     selected_path: Option<PathBuf>,
     tabs: Vec<OpenTab>,
@@ -71,10 +72,12 @@ struct TinytextApp {
 }
 
 impl TinytextApp {
-    fn new(cx: &mut Context<Self>) -> Self {
-        let workspace_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    fn new(workspace_root: Option<PathBuf>, cx: &mut Context<Self>) -> Self {
         let mut expanded = HashSet::new();
-        expanded.insert(workspace_root.clone());
+        if let Some(root) = &workspace_root {
+            expanded.insert(root.clone());
+        }
+        let sidebar_visible = workspace_root.is_some();
 
         Self {
             focus_handle: cx.focus_handle(),
@@ -83,7 +86,7 @@ impl TinytextApp {
             selected_path: None,
             tabs: Vec::new(),
             active_tab: None,
-            sidebar_visible: true,
+            sidebar_visible,
             cursor_line: 1,
             cursor_col: 1,
         }
@@ -213,6 +216,34 @@ impl TinytextApp {
         .detach();
     }
 
+    fn on_open_folder(&mut self, _: &OpenFolder, window: &mut Window, cx: &mut Context<Self>) {
+        let receiver = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("Open Folder".into()),
+        });
+
+        cx.spawn_in(window, async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = receiver.await
+                && let Some(path) = paths.into_iter().next()
+            {
+                this.update_in(cx, |this, _window, cx| this.open_folder(path, cx))
+                    .ok();
+            }
+        })
+        .detach();
+    }
+
+    fn open_folder(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        self.workspace_root = Some(path.clone());
+        self.expanded.clear();
+        self.expanded.insert(path);
+        self.selected_path = None;
+        self.sidebar_visible = true;
+        cx.notify();
+    }
+
     fn on_save_file(&mut self, _: &SaveFile, window: &mut Window, cx: &mut Context<Self>) {
         let Some(ix) = self.active_tab else {
             return;
@@ -227,7 +258,10 @@ impl TinytextApp {
             return;
         }
 
-        let directory = self.workspace_root.clone();
+        let directory = self
+            .workspace_root
+            .clone()
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
         let receiver = cx.prompt_for_new_path(&directory, Some("untitled.txt"));
 
         cx.spawn_in(window, async move |this, cx| {
@@ -313,6 +347,13 @@ impl TinytextApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.toggle_sidebar(cx);
+    }
+
+    fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
+        if self.workspace_root.is_none() {
+            return;
+        }
         self.sidebar_visible = !self.sidebar_visible;
         cx.notify();
     }
@@ -439,6 +480,7 @@ impl TinytextApp {
                     .dropdown_menu(move |menu, _, _| {
                         menu.menu("New File", Box::new(NewFile))
                             .menu("Open…", Box::new(OpenFile))
+                            .menu("Open Folder…", Box::new(OpenFolder))
                             .separator()
                             .menu("Save", Box::new(SaveFile))
                             .separator()
@@ -480,10 +522,7 @@ impl TinytextApp {
                     .ghost()
                     .icon(IconName::PanelLeft)
                     .tooltip("Toggle Sidebar")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.sidebar_visible = !this.sidebar_visible;
-                        cx.notify();
-                    })),
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
             )
     }
 
@@ -527,14 +566,16 @@ impl TinytextApp {
     }
 
     fn render_workspace(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.sidebar_visible {
+        if self.sidebar_visible
+            && let Some(root) = self.workspace_root.clone()
+        {
             div().flex_1().min_h_0().child(
                 h_resizable("workspace-panels")
                     .child(
                         resizable_panel()
                             .size(SIDEBAR_WIDTH)
                             .size_range(px(160.)..px(480.))
-                            .child(self.render_sidebar(cx)),
+                            .child(self.render_sidebar(&root, cx)),
                     )
                     .child(resizable_panel().child(self.render_editor(cx))),
             )
@@ -543,9 +584,8 @@ impl TinytextApp {
         }
     }
 
-    fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let root = self.workspace_root.clone();
-        let rows = self.tree_rows(&root, 0, cx);
+    fn render_sidebar(&self, root: &Path, cx: &mut Context<Self>) -> impl IntoElement {
+        let rows = self.tree_rows(root, 0, cx);
 
         div()
             .v_flex()
@@ -562,7 +602,7 @@ impl TinytextApp {
                     .border_b_1()
                     .border_color(cx.theme().border)
                     .child(Icon::new(IconName::FolderOpen).with_size(Size::Small))
-                    .child(div().text_sm().font_semibold().child(file_name(&root))),
+                    .child(div().text_sm().font_semibold().child(file_name(root))),
             )
             .child(
                 div()
@@ -752,6 +792,7 @@ impl Render for TinytextApp {
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::on_new_file))
             .on_action(cx.listener(Self::on_open_file))
+            .on_action(cx.listener(Self::on_open_folder))
             .on_action(cx.listener(Self::on_save_file))
             .on_action(cx.listener(Self::on_close_tab))
             .on_action(cx.listener(Self::on_quit))
@@ -879,6 +920,12 @@ fn main() {
     application.run(move |cx| {
         gpui_kit::init(cx);
         Theme::change(ThemeMode::Dark, None, cx);
+
+        let initial_folder = std::env::args()
+            .nth(1)
+            .map(PathBuf::from)
+            .filter(|path| path.is_dir());
+
         cx.bind_keys([
             KeyBinding::new("cmd-n", NewFile, None),
             KeyBinding::new("cmd-o", OpenFile, None),
@@ -898,7 +945,7 @@ fn main() {
         };
 
         gpui_kit::open_window(options, cx, move |window, cx| {
-            let app = cx.new(TinytextApp::new);
+            let app = cx.new(|cx| TinytextApp::new(initial_folder.clone(), cx));
             let focus_handle = app.read(cx).focus_handle.clone();
             focus_handle.focus(window, cx);
 
