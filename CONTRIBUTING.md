@@ -41,8 +41,33 @@ cargo run
 This opens the native window. It requires a graphical macOS session; there is no
 headless mode yet.
 
-Application code lives in `src/main.rs`. Keep a feature in that file until it grows
-large enough to warrant its own module.
+For a faster loop, `bacon run` (`cargo install bacon`) rebuilds and relaunches the app
+on every save.
+
+Some features only work from an app bundle: the `tinytext` command, Finder's "Open
+With", and files opened through LaunchServices. To test them, build, install, and
+relaunch the bundle in one step (needs `cargo install cargo-bundle`):
+
+```sh
+./scripts/dev.sh             # debug build
+./scripts/dev.sh --release   # optimized build
+./scripts/dev.sh file.txt    # relaunch and open a file
+```
+
+This replaces `/Applications/Tinytext.app` and kills the running copy, so save your work
+in it first.
+
+`./scripts/bundle.sh` builds a release bundle into `target/release/bundle/osx/` without
+installing it. Regenerate the placeholder icon with `python3 scripts/make-icon.py`.
+
+### Code layout
+
+- `src/main.rs`: entry point, actions, and keybindings
+- `src/app/`: `TinytextApp` state, split into `files.rs`, `tabs.rs`, and `ui.rs`
+- `src/cli.rs`, `src/language.rs`, `src/paths.rs`, `src/session.rs`: helpers with no GPUI
+  dependency
+
+Add a new module only once a feature is large enough to justify the boundary.
 
 ## Check locally before opening a pull request
 
@@ -57,7 +82,7 @@ cargo build
 
 - `cargo fmt --check` — confirms the code matches `rustfmt` formatting.
 - `cargo clippy --all-targets -- -D warnings` — lints the crate and treats warnings as errors.
-- `cargo test` — runs the test suite (there are no tests yet; the harness is in place for future work).
+- `cargo test` — runs the test suite.
 - `cargo build` — confirms the app still compiles.
 
 A future-incompatibility warning from a transitive dependency (`block`) is expected and
@@ -69,6 +94,19 @@ is not caused by application code.
 - Write a clear, concise commit message and pull request description explaining what
   changed and why.
 - Make sure the checks above pass, and mention anything you could not verify locally.
+
+## Release
+
+Maintainers only. Bump `version` in `Cargo.toml`, run `cargo build` to update
+`Cargo.lock`, and commit both. Then tag and push:
+
+```sh
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The Release workflow checks that the tag matches `Cargo.toml`, builds and ad-hoc signs
+the app, and publishes `Tinytext-macos-arm64.zip` to a GitHub Release.
 
 ## Resources
 

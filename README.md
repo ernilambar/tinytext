@@ -1,81 +1,94 @@
 # Tinytext
 
-Tinytext is a native desktop text editor built with [GPUI Kit](https://gpui-kit.com)
-(GPUI + GPUI Component) in Rust.
+A fast, lightweight text editor for macOS.
 
 ## Features
 
-- Multi-tab editing with independent rope-backed buffers
-- Open, edit, and save files asynchronously
-- Tree-sitter syntax highlighting for Rust, TOML, JSON, Markdown, JavaScript,
-  TypeScript, Python, HTML, CSS, and PHP
-- Unsaved-changes confirmation and save notifications
-- File explorer sidebar and resizable panes
-- Cursor position, encoding, and language mode in the status bar
-- Global shortcuts (`Cmd+N`, `Cmd+O`, `Cmd+S`, `Cmd+W`, `Cmd+B`)
-- `tinytext file.txt` command-line launcher that opens files in the running window
-- Dark theme by default
+- Tabs, each with its own file
+- Syntax highlighting for Rust, TOML, JSON, Markdown, JavaScript, TypeScript, Python,
+  HTML, CSS, and PHP
+- File explorer sidebar for browsing a project folder
+- Reopens your tabs and folder where you left off
+- Warns before closing a file with unsaved changes
+- Cursor position, encoding, and language in the status bar
+- `tinytext` command to open files from the terminal
+- Shows up in Finder's "Open With" menu for text files
+- Dark theme
 
 ## Requirements
 
-- Rust 1.92 or later
-- macOS 15 or later with Xcode Command Line Tools (`xcode-select --install`)
+- macOS 15 or later
+- Apple Silicon Mac (M1 or newer)
 
-## Run
+## Install
+
+Run this in Terminal:
 
 ```sh
-cargo run
+curl -fsSL https://raw.githubusercontent.com/ernilambar/tinytext/main/scripts/install.sh | sh
 ```
 
-## Build a shareable app
+This installs Tinytext into `/Applications`.
+
+### Manual download
+
+Download `Tinytext-macos-arm64.zip` from the
+[latest release](https://github.com/ernilambar/tinytext/releases/latest), unzip it, and
+move `Tinytext.app` to `/Applications`.
+
+Tinytext is not notarized by Apple, so macOS blocks it the first time you open a copy
+downloaded in a browser. To allow it, run this once:
 
 ```sh
-./scripts/bundle.sh
+xattr -dr com.apple.quarantine /Applications/Tinytext.app
 ```
 
-This produces `target/release/bundle/osx/Tinytext.app` and
-`target/release/bundle/dmg/Tinytext.dmg`, and ad-hoc signs the app so it launches
-locally. Sharing it on another Mac without Gatekeeper warnings needs a Developer ID
-signature and notarization; the script prints the exact commands.
-Regenerate the placeholder icon with `python3 scripts/make-icon.py`.
+## Update
 
-## Open files from the command line
+Run the install command again. It replaces the existing app with the latest release.
 
-The app can add the `tinytext` command to your `PATH` for you: choose
-**Help → Install "tinytext" Command in PATH** in the menu bar. macOS asks for
-your password once so the launcher can be written to `/usr/local/bin/tinytext`.
+## Usage
 
-To do it manually instead, bundle and install the app, then put the launcher on
-your `PATH`:
+### Keyboard shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| `Cmd+N` | New file |
+| `Cmd+O` | Open file |
+| `Cmd+S` | Save |
+| `Cmd+W` | Close tab |
+| `Cmd+B` | Show or hide the sidebar |
+| `Cmd+Q` | Quit |
+
+Open a folder in the sidebar with **File → Open Folder…**.
+
+### Open files from Terminal
+
+Choose **Help → Install "tinytext" Command in PATH** and enter your password when asked.
+Then:
 
 ```sh
-./scripts/bundle.sh
-cp -R target/release/bundle/osx/Tinytext.app /Applications/
-sudo install -m 755 scripts/tinytext /usr/local/bin/tinytext
-```
-
-Now `tinytext` opens files in the app:
-
-```sh
-tinytext file.txt
+tinytext notes.txt
 tinytext one.txt two.txt
 ```
 
-The launcher hands the paths to the running Tinytext instance through
-LaunchServices (or launches it on first use), so files open as tabs in the
-existing window rather than starting a second copy. Point it at a bundle
-elsewhere with `TINYTEXT_APP=/path/to/Tinytext.app tinytext file.txt`.
+Files open as tabs in the running window.
 
-Because the bundle declares text document types, macOS also lists Tinytext
-under Finder's "Open With" for text files once the app has been launched.
+## Uninstall
 
-## Layout
+```sh
+rm -rf /Applications/Tinytext.app
+sudo rm -f /usr/local/bin/tinytext
+rm -rf ~/Library/Application\ Support/net.nilambar.tinytext
+```
 
-- Top: MenuBar & Tabs
-- Middle: File Explorer sidebar | main editor view
-- Bottom: Status bar
+The last line removes your saved session (open tabs and folder).
 
-## Author
+## Contributing
 
-Nilambar Sharma — [nilambar.net](https://nilambar.net/) · [GitHub](https://github.com/ernilambar)
+Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) to
+build Tinytext from source.
 
+## License
+
+[MIT](LICENSE) © Nilambar Sharma ([nilambar.net](https://nilambar.net/))

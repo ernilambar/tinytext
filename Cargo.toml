@@ -3,6 +3,7 @@ name = "tinytext"
 version = "0.1.0"
 edition = "2024"
 authors = ["Nilambar Sharma <nilambar@outlook.com>"]
+license = "MIT"
 homepage = "https://nilambar.net/"
 repository = "https://github.com/ernilambar/tinytext"
 

@@ -80,7 +80,6 @@ fn main() {
             KeyBinding::new("cmd-s", SaveFile, None),
             KeyBinding::new("cmd-w", CloseTab, None),
             KeyBinding::new("cmd-q", Quit, None),
-            KeyBinding::new("ctrl-q", Quit, None),
             KeyBinding::new("cmd-b", ToggleSidebar, None),
         ]);
 

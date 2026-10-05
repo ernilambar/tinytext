@@ -1,0 +1,9 @@
+# `bacon run` rebuilds and relaunches the app whenever a source file changes.
+# Install bacon with: cargo install bacon
+
+[jobs.run]
+command = ["cargo", "run"]
+need_stdout = true
+allow_warnings = true
+background = false
+on_change_strategy = "kill_then_restart"

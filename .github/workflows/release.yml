@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check tag matches Cargo.toml version
+        run: |
+          version="$(grep -m1 '^version' Cargo.toml | cut -d '"' -f2)"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match Cargo.toml version $version" >&2
+            exit 1
+          fi
+
+      - run: cargo install cargo-bundle --locked
+
+      - name: Bundle
+        run: |
+          cargo bundle --release
+          codesign --force --deep --sign - target/release/bundle/osx/Tinytext.app
+          ditto -c -k --keepParent target/release/bundle/osx/Tinytext.app Tinytext-macos-arm64.zip
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" Tinytext-macos-arm64.zip --title "$GITHUB_REF_NAME" --generate-notes

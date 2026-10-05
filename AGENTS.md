@@ -35,6 +35,8 @@ Run every command from the repository root.
 - Format check: `cargo fmt --check`
 - Typecheck: `cargo check`
 - Run the app: `cargo run`
+- Run and restart on save: `bacon run`
+- Install bundle to `/Applications` and relaunch: `./scripts/dev.sh [--release]`
 
 `cargo run` opens a native window and needs a graphical macOS session; do not rely on it
 in headless environments.
@@ -54,6 +56,24 @@ in headless environments.
   private fields directly; cross-file methods use `pub(super)`. Add a new module only once
   a feature is large enough to justify the boundary.
 - This project targets macOS only. Do not add cross-platform code paths.
+
+## Releasing
+
+`version` in `Cargo.toml` is the single source of truth. The About dialog, `--version`
+output, and the bundle's `Info.plist` read it at build time; never hardcode a version
+anywhere else.
+
+To release a new version:
+
+1. Bump `version` in `Cargo.toml`.
+2. Run `cargo build` so `Cargo.lock` picks up the new version (do not edit it by hand).
+3. If the year changed, update `copyright` under `[package.metadata.bundle]`.
+4. Pass the quality gate and report the changes.
+
+The maintainer tags `vX.Y.Z` and pushes it; the tag must match the `Cargo.toml` version
+exactly. `.github/workflows/release.yml` then builds, ad-hoc signs, and publishes
+`Tinytext-macos-arm64.zip` to a GitHub Release. Do not rename that asset:
+`scripts/install.sh` downloads it by name.
 
 ## Quality gate
 
