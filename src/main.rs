@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
 use gpui_kit::base::StyledExt as _;
 use gpui_kit::component::{
     ActiveTheme as _, Icon, IconName, Sizable as _, Size, Theme, ThemeMode, WindowExt as _,
@@ -37,6 +39,7 @@ gpui_kit::actions!(
 );
 
 const SIDEBAR_WIDTH: Pixels = px(240.);
+const BUNDLE_ID: &str = "net.nilambar.tinytext";
 const LANGUAGES: [&str; 11] = [
     "Plain Text",
     "Rust",
@@ -72,6 +75,17 @@ struct TinytextApp {
     cursor_col: usize,
 }
 
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+struct SessionState {
+    workspace_root: Option<PathBuf>,
+    tabs: Vec<PathBuf>,
+    active_tab: Option<PathBuf>,
+    expanded: Vec<PathBuf>,
+    selected_path: Option<PathBuf>,
+    sidebar_visible: bool,
+}
+
 impl TinytextApp {
     fn new(workspace_root: Option<PathBuf>, cx: &mut Context<Self>) -> Self {
         let mut expanded = HashSet::new();
@@ -90,6 +104,103 @@ impl TinytextApp {
             sidebar_visible,
             cursor_line: 1,
             cursor_col: 1,
+        }
+    }
+
+    fn restore_session(
+        &mut self,
+        session: SessionState,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(root) = session.workspace_root.filter(|path| path.is_dir()) {
+            self.workspace_root = Some(root);
+        }
+
+        self.expanded = session
+            .expanded
+            .into_iter()
+            .filter(|path| path.is_dir())
+            .collect();
+        if let Some(root) = &self.workspace_root {
+            self.expanded.insert(root.clone());
+        }
+
+        self.selected_path = session.selected_path.filter(|path| path.exists());
+        self.sidebar_visible = session.sidebar_visible && self.workspace_root.is_some();
+
+        let mut paths = session.tabs;
+        paths.retain(|path| path.is_file());
+        let active = session.active_tab.filter(|path| path.is_file());
+
+        cx.spawn_in(window, async move |this, cx| {
+            for path in paths {
+                let read = cx
+                    .background_executor()
+                    .spawn({
+                        let path = path.clone();
+                        async move { std::fs::read_to_string(path) }
+                    })
+                    .await;
+                if let Ok(content) = read {
+                    this.update_in(cx, |this, window, cx| {
+                        this.add_tab(Some(path), content, window, cx);
+                    })
+                    .ok();
+                }
+            }
+
+            this.update_in(cx, |this, window, cx| {
+                if let Some(active) = active
+                    && let Some(ix) = this
+                        .tabs
+                        .iter()
+                        .position(|tab| tab.path.as_deref() == Some(active.as_path()))
+                {
+                    this.activate_tab(ix, window, cx);
+                    this.save_session();
+                }
+            })
+            .ok();
+        })
+        .detach();
+
+        cx.notify();
+    }
+
+    fn save_session(&self) {
+        let Some(path) = session_path() else {
+            return;
+        };
+
+        let mut expanded: Vec<PathBuf> = self.expanded.iter().cloned().collect();
+        expanded.sort();
+
+        let state = SessionState {
+            workspace_root: self.workspace_root.clone(),
+            tabs: self
+                .tabs
+                .iter()
+                .filter_map(|tab| tab.path.clone())
+                .collect(),
+            active_tab: self.active().and_then(|tab| tab.path.clone()),
+            expanded,
+            selected_path: self.selected_path.clone(),
+            sidebar_visible: self.sidebar_visible,
+        };
+
+        let Ok(json) = serde_json::to_string_pretty(&state) else {
+            return;
+        };
+        if let Some(parent) = path.parent()
+            && std::fs::create_dir_all(parent).is_err()
+        {
+            return;
+        }
+
+        let temp = path.with_file_name("session.json.tmp");
+        if std::fs::write(&temp, json).is_ok() {
+            let _ = std::fs::rename(&temp, &path);
         }
     }
 
@@ -152,6 +263,7 @@ impl TinytextApp {
         let position = editor.read(cx).cursor_position();
         self.cursor_line = position.line as usize + 1;
         self.cursor_col = position.character as usize + 1;
+        self.save_session();
         cx.notify();
     }
 
@@ -242,6 +354,7 @@ impl TinytextApp {
         self.expanded.insert(path);
         self.selected_path = None;
         self.sidebar_visible = true;
+        self.save_session();
         cx.notify();
     }
 
@@ -329,6 +442,7 @@ impl TinytextApp {
             tab.path = Some(path);
             tab.dirty = false;
         }
+        self.save_session();
         cx.notify();
     }
 
@@ -356,6 +470,7 @@ impl TinytextApp {
             return;
         }
         self.sidebar_visible = !self.sidebar_visible;
+        self.save_session();
         cx.notify();
     }
 
@@ -457,6 +572,7 @@ impl TinytextApp {
         if let Some(tab) = self.active_tab.and_then(|ix| self.tabs.get(ix)) {
             tab.editor.update(cx, |state, cx| state.focus(window, cx));
         }
+        self.save_session();
         cx.notify();
     }
 
@@ -739,6 +855,7 @@ impl TinytextApp {
                 } else if event.click_count() >= 2 {
                     this.request_open(click_path.clone(), window, cx);
                 }
+                this.save_session();
                 cx.notify();
             }))
             .into_any_element()
@@ -859,6 +976,23 @@ fn file_name(path: &Path) -> String {
     path.file_name()
         .map(|name| name.to_string_lossy().to_string())
         .unwrap_or_else(|| path.display().to_string())
+}
+
+fn session_path() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    Some(
+        PathBuf::from(home)
+            .join("Library")
+            .join("Application Support")
+            .join(BUNDLE_ID)
+            .join("session.json"),
+    )
+}
+
+fn load_session() -> Option<SessionState> {
+    let path = session_path()?;
+    let data = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&data).ok()
 }
 
 fn language_for(path: &Path) -> SharedString {
@@ -1062,10 +1196,16 @@ fn main() {
         gpui_kit::init(cx);
         Theme::change(ThemeMode::Dark, None, cx);
 
-        let initial_folder = std::env::args()
-            .nth(1)
+        let argument = std::env::args().nth(1);
+        let initial_folder = argument
+            .as_ref()
             .map(PathBuf::from)
             .filter(|path| path.is_dir());
+        let session = if argument.is_none() {
+            load_session()
+        } else {
+            None
+        };
 
         cx.bind_keys([
             KeyBinding::new("cmd-n", NewFile, None),
@@ -1087,6 +1227,9 @@ fn main() {
 
         gpui_kit::open_window(options, cx, move |window, cx| {
             let app = cx.new(|cx| TinytextApp::new(initial_folder.clone(), cx));
+            if let Some(session) = session {
+                app.update(cx, |this, cx| this.restore_session(session, window, cx));
+            }
             let focus_handle = app.read(cx).focus_handle.clone();
             focus_handle.focus(window, cx);
 
