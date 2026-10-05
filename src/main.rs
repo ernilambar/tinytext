@@ -1,10 +1,10 @@
-use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::base::StyledExt as _;
+use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::*;
 
-struct TextEditorApp;
+struct TinytextApp;
 
-impl Render for TextEditorApp {
+impl Render for TinytextApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let border = cx.theme().border;
 
@@ -72,13 +72,13 @@ fn main() {
 
         let options = WindowOptions {
             titlebar: Some(TitlebarOptions {
-                title: Some("GPUI Text Editor".into()),
+                title: Some("Tinytext".into()),
                 ..Default::default()
             }),
             ..Default::default()
         };
 
-        gpui_kit::open_window(options, cx, |_, cx| cx.new(|_| TextEditorApp))
+        gpui_kit::open_window(options, cx, |_, cx| cx.new(|_| TinytextApp))
             .expect("failed to open window");
     });
 }

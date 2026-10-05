@@ -1,0 +1,68 @@
+# AGENTS.md
+
+Guidance for AI coding agents (Claude, Cursor, Copilot, Codex) working in this repository.
+
+## Overview
+
+Tinytext is a native macOS text editor written in Rust. It builds its UI with
+[GPUI Kit](https://gpui-kit.com) (`gpui-kit`), which bundles GPUI, GPUI Base, and GPUI
+Component, and uses `ropey` plus `tree-sitter` for text buffering and syntax parsing.
+
+## Setup
+
+Requirements: Rust 1.92 or later, macOS 15 or later, and Xcode Command Line Tools.
+
+```sh
+git clone git@github.com:ernilambar/tinytext.git
+cd tinytext
+xcode-select --install
+rustup component add rustfmt clippy
+cargo build
+```
+
+`cargo build` fetches and compiles all dependencies. The first build compiles GPUI and is
+slow; later builds are fast.
+
+## Commands
+
+Run every command from the repository root.
+
+- Build: `cargo build`
+- Release build: `cargo build --release`
+- Test: `cargo test`
+- Lint: `cargo clippy --all-targets -- -D warnings`
+- Format: `cargo fmt`
+- Format check: `cargo fmt --check`
+- Typecheck: `cargo check`
+- Run the app: `cargo run`
+
+`cargo run` opens a native window and needs a graphical macOS session; do not rely on it
+in headless environments.
+
+## Conventions
+
+- Use `gpui-kit` as the only UI dependency. Import GPUI via `use gpui_kit::*;` and
+  components via `gpui_kit::component`. Do not add `gpui` or `gpui-component` directly —
+  the kit pins their versions together.
+- Bring element helper traits into scope: `use gpui_kit::base::StyledExt as _;` for
+  `.h_flex()` / `.v_flex()`, and `use gpui_kit::component::ActiveTheme as _;` for
+  `cx.theme()`.
+- Never edit `Cargo.lock` by hand; regenerate it with a `cargo` command.
+- Keep application code in `src/main.rs`. Split a feature into its own module only once it
+  is large enough to justify the boundary.
+- This project targets macOS only. Do not add cross-platform code paths.
+
+## Quality gate
+
+Before declaring any task complete, run these in order and confirm every one exits 0:
+
+```sh
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+cargo build
+```
+
+A future-incompatibility warning from the transitive `block` crate is expected and is not
+a failure. If any command fails, fix the cause and rerun the full sequence. Do not run
+`git add` or `git commit` unless explicitly asked; report uncommitted work instead.

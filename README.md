@@ -1,7 +1,7 @@
-# GPUI Text Editor
+# Tinytext
 
-A native desktop text editor built with [GPUI Kit](https://gpui-kit.com) (GPUI + GPUI
-Component) in Rust.
+Tinytext is a native desktop text editor built with [GPUI Kit](https://gpui-kit.com)
+(GPUI + GPUI Component) in Rust.
 
 ## Status
 
