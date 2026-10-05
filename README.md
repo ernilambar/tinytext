@@ -41,7 +41,12 @@ Regenerate the placeholder icon with `python3 scripts/make-icon.py`.
 
 ## Open files from the command line
 
-Bundle and install the app, then put the launcher on your `PATH`:
+The app can add the `tinytext` command to your `PATH` for you: choose
+**Help → Install "tinytext" Command in PATH** in the menu bar. macOS asks for
+your password once so the launcher can be written to `/usr/local/bin/tinytext`.
+
+To do it manually instead, bundle and install the app, then put the launcher on
+your `PATH`:
 
 ```sh
 ./scripts/bundle.sh

@@ -32,6 +32,7 @@ gpui_kit::actions!(
         EditCopy,
         EditPaste,
         EditSelectAll,
+        InstallCli,
     ]
 );
 
@@ -358,6 +359,38 @@ impl TinytextApp {
         cx.notify();
     }
 
+    fn on_install_cli(&mut self, _: &InstallCli, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(bundle) = app_bundle_path() else {
+            window.push_notification(
+                Notification::error(
+                    "Run the bundled Tinytext.app to install the command-line tool".to_string(),
+                ),
+                cx,
+            );
+            return;
+        };
+
+        cx.spawn_in(window, async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { install_cli(&bundle) })
+                .await;
+
+            this.update_in(cx, |_this, window, cx| match result {
+                Ok(path) => window.push_notification(
+                    Notification::success(format!("Installed command at {}", path.display())),
+                    cx,
+                ),
+                Err(message) => window.push_notification(
+                    Notification::error(format!("Could not install command: {message}")),
+                    cx,
+                ),
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     fn activate_tab(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         self.active_tab = Some(ix);
         if let Some(tab) = self.tabs.get(ix) {
@@ -485,6 +518,8 @@ impl TinytextApp {
                             .menu("Save", Box::new(SaveFile))
                             .separator()
                             .menu_with_disabled("Close Tab", Box::new(CloseTab), !has_tabs)
+                            .separator()
+                            .menu("Quit", Box::new(Quit))
                     }),
             )
             .child(
@@ -512,6 +547,16 @@ impl TinytextApp {
                     .label("View")
                     .dropdown_menu(move |menu, _, _| {
                         menu.menu_with_check("Sidebar", sidebar_visible, Box::new(ToggleSidebar))
+                    }),
+            )
+            .child(
+                Button::new("menu-help")
+                    .small()
+                    .compact()
+                    .ghost()
+                    .label("Help")
+                    .dropdown_menu(|menu, _, _| {
+                        menu.menu("Install \"tinytext\" Command in PATH", Box::new(InstallCli))
                     }),
             )
             .child(div().flex_1())
@@ -802,6 +847,7 @@ impl Render for TinytextApp {
             .on_action(cx.listener(Self::on_close_tab))
             .on_action(cx.listener(Self::on_quit))
             .on_action(cx.listener(Self::on_toggle_sidebar))
+            .on_action(cx.listener(Self::on_install_cli))
             .child(self.render_menu_bar(cx))
             .child(self.render_tab_bar(cx))
             .child(self.render_workspace(cx))
@@ -906,6 +952,66 @@ fn hex_digit(byte: u8) -> Option<u8> {
         b'A'..=b'F' => Some(byte - b'A' + 10),
         _ => None,
     }
+}
+
+fn app_bundle_path() -> Option<PathBuf> {
+    std::env::current_exe()
+        .ok()?
+        .ancestors()
+        .find(|path| path.extension().is_some_and(|ext| ext == "app"))
+        .map(Path::to_path_buf)
+}
+
+fn launcher_script(bundle: &Path) -> String {
+    let template = r#"#!/usr/bin/env bash
+# Command-line launcher for Tinytext, installed by the app.
+set -euo pipefail
+
+APP="${TINYTEXT_APP:-__BUNDLE__}"
+
+if [ "$#" -eq 0 ]; then
+    exec open -a "$APP"
+fi
+
+exec open -a "$APP" -- "$@"
+"#;
+    template.replace("__BUNDLE__", &bundle.display().to_string())
+}
+
+fn install_cli(bundle: &Path) -> Result<PathBuf, String> {
+    const TARGET: &str = "/usr/local/bin/tinytext";
+
+    let temp = std::env::temp_dir().join(format!("tinytext-cli-{}", std::process::id()));
+    std::fs::write(&temp, launcher_script(bundle)).map_err(|error| error.to_string())?;
+
+    let command = format!(
+        "mkdir -p /usr/local/bin && install -m 755 \"{}\" {TARGET}",
+        temp.display()
+    );
+    let script = format!(
+        "do shell script \"{}\" with administrator privileges",
+        command.replace('"', "\\\"")
+    );
+
+    let output = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output()
+        .map_err(|error| error.to_string())?;
+
+    let _ = std::fs::remove_file(&temp);
+
+    if !output.status.success() {
+        let message = String::from_utf8_lossy(&output.stderr);
+        let message = message.trim();
+        let message = message.strip_prefix("execution error: ").unwrap_or(message);
+        if message.contains("User canceled") || message.contains("-128") {
+            return Err("Installation cancelled".to_string());
+        }
+        return Err(message.to_string());
+    }
+
+    Ok(PathBuf::from(TARGET))
 }
 
 fn print_help() {
