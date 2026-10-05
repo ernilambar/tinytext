@@ -60,6 +60,7 @@ latest release.
 | `Cmd+S` | Save |
 | `Cmd+W` | Close tab |
 | `Cmd+B` | Show or hide the sidebar |
+| `Cmd+,` | Open settings |
 | `Cmd+Q` | Quit |
 
 Open a folder in the sidebar with **File → Open Folder…**.
