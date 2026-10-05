@@ -14,6 +14,7 @@ use gpui_kit::component::{
 };
 use gpui_kit::*;
 
+use crate::file_icons::{file_icon, folder_icon};
 use crate::language::{LANGUAGES, editor_language_id};
 use crate::paths::{file_name, read_dir};
 
@@ -223,16 +224,11 @@ impl TinytextApp {
         };
 
         let type_icon = if is_dir {
-            Icon::new(if expanded {
-                IconName::FolderOpen
-            } else {
-                IconName::Folder
-            })
+            Icon::empty().data(folder_icon())
         } else {
-            Icon::new(IconName::FileText)
+            Icon::empty().data(file_icon(path))
         }
-        .with_size(Size::Small)
-        .text_color(muted);
+        .with_size(Size::Small);
 
         let click_path = path.to_path_buf();
         let label = file_name(path);

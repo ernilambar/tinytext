@@ -1,5 +1,6 @@
 mod app;
 mod cli;
+mod file_icons;
 mod language;
 mod paths;
 mod session;
