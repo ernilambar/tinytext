@@ -10,7 +10,7 @@ use gpui_kit::component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     input::{Editor, EditorState, InputEvent},
     list::ListItem,
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem},
     notification::Notification,
     resizable::{h_resizable, resizable_panel},
     status_bar::StatusBar,
@@ -35,6 +35,7 @@ gpui_kit::actions!(
         EditPaste,
         EditSelectAll,
         InstallCli,
+        About,
     ]
 );
 
@@ -70,6 +71,7 @@ struct TinytextApp {
     selected_path: Option<PathBuf>,
     tabs: Vec<OpenTab>,
     active_tab: Option<usize>,
+    context_tab: Option<usize>,
     sidebar_visible: bool,
     cursor_line: usize,
     cursor_col: usize,
@@ -101,6 +103,7 @@ impl TinytextApp {
             selected_path: None,
             tabs: Vec::new(),
             active_tab: None,
+            context_tab: None,
             sidebar_visible,
             cursor_line: 1,
             cursor_col: 1,
@@ -506,6 +509,23 @@ impl TinytextApp {
         .detach();
     }
 
+    fn on_about(&mut self, _: &About, window: &mut Window, cx: &mut Context<Self>) {
+        window.open_alert_dialog(cx, |alert, _, _| {
+            alert
+                .title("Tinytext")
+                .description(
+                    div()
+                        .v_flex()
+                        .gap_1()
+                        .child(format!("Version {}", env!("CARGO_PKG_VERSION")))
+                        .child("A native macOS text editor built with GPUI Kit.")
+                        .child(env!("CARGO_PKG_REPOSITORY"))
+                        .child(env!("CARGO_PKG_HOMEPAGE")),
+                )
+                .ok_text("Close")
+        });
+    }
+
     fn activate_tab(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         self.active_tab = Some(ix);
         if let Some(tab) = self.tabs.get(ix) {
@@ -546,6 +566,67 @@ impl TinytextApp {
                 .cancel_text("Keep Editing")
                 .on_ok(move |_, window, cx| {
                     entity.update(cx, |this, cx| this.remove_tab(id, window, cx));
+                    true
+                })
+        });
+    }
+
+    fn close_other_tabs(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let indices = (0..self.tabs.len()).filter(|other| *other != ix).collect();
+        self.close_tabs(indices, window, cx);
+    }
+
+    fn close_tabs_to_right(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let indices = (ix + 1..self.tabs.len()).collect();
+        self.close_tabs(indices, window, cx);
+    }
+
+    fn close_tabs_with_deleted_files(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let indices = self
+            .tabs
+            .iter()
+            .enumerate()
+            .filter(|(_, tab)| tab.path.as_deref().is_some_and(|path| !path.exists()))
+            .map(|(ix, _)| ix)
+            .collect();
+        self.close_tabs(indices, window, cx);
+    }
+
+    fn close_tabs(&mut self, indices: Vec<usize>, window: &mut Window, cx: &mut Context<Self>) {
+        let mut ids: Vec<EntityId> = Vec::new();
+        let mut dirty = false;
+        for ix in indices {
+            if let Some(tab) = self.tabs.get(ix) {
+                ids.push(tab.editor.entity_id());
+                dirty |= tab.dirty;
+            }
+        }
+        if ids.is_empty() {
+            return;
+        }
+
+        if !dirty {
+            for id in ids {
+                self.remove_tab(id, window, cx);
+            }
+            return;
+        }
+
+        let entity = cx.entity();
+        window.open_alert_dialog(cx, move |alert, _window, _cx| {
+            let entity = entity.clone();
+            let ids = ids.clone();
+            alert
+                .confirm()
+                .title("Unsaved Changes")
+                .description("Some tabs have unsaved changes. Close them without saving?")
+                .ok_text("Close Without Saving")
+                .ok_variant(ButtonVariant::Danger)
+                .cancel_text("Keep Editing")
+                .on_ok(move |_, window, cx| {
+                    for id in ids.iter().copied() {
+                        entity.update(cx, |this, cx| this.remove_tab(id, window, cx));
+                    }
                     true
                 })
         });
@@ -673,6 +754,8 @@ impl TinytextApp {
                     .label("Help")
                     .dropdown_menu(|menu, _, _| {
                         menu.menu("Install \"tinytext\" Command in PATH", Box::new(InstallCli))
+                            .separator()
+                            .menu("About Tinytext", Box::new(About))
                     }),
             )
             .child(div().flex_1())
@@ -709,16 +792,84 @@ impl TinytextApp {
                                 close_entity.update(cx, |this, cx| this.close_tab(ix, window, cx));
                             }),
                     )
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |this, _, _, _cx| {
+                            this.context_tab = Some(ix);
+                        }),
+                    )
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.activate_tab(ix, window, cx);
                     }))
             })
             .collect();
 
+        let menu_entity = entity.clone();
         div()
+            .id("workspace-tab-bar")
             .flex_none()
             .border_b_1()
             .border_color(cx.theme().border)
+            .capture_any_mouse_down(cx.listener(|this, event: &MouseDownEvent, _, _cx| {
+                if event.button == MouseButton::Right {
+                    this.context_tab = None;
+                }
+            }))
+            .context_menu(move |menu, _, cx| {
+                let Some(ix) = menu_entity.read(cx).context_tab else {
+                    return menu;
+                };
+                let (tab_count, has_deleted) = {
+                    let app = menu_entity.read(cx);
+                    (
+                        app.tabs.len(),
+                        app.tabs
+                            .iter()
+                            .any(|tab| tab.path.as_deref().is_some_and(|path| !path.exists())),
+                    )
+                };
+                if ix >= tab_count {
+                    return menu;
+                }
+
+                let close_entity = menu_entity.clone();
+                let others_entity = menu_entity.clone();
+                let right_entity = menu_entity.clone();
+                let deleted_entity = menu_entity.clone();
+
+                menu.item(
+                    PopupMenuItem::new("Close Tab").on_click(move |_, window, cx| {
+                        close_entity.update(cx, |this, cx| this.close_tab(ix, window, cx));
+                    }),
+                )
+                .separator()
+                .item(
+                    PopupMenuItem::new("Close Other Tabs")
+                        .disabled(tab_count <= 1)
+                        .on_click(move |_, window, cx| {
+                            others_entity
+                                .update(cx, |this, cx| this.close_other_tabs(ix, window, cx));
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new("Close Tabs to the Right")
+                        .disabled(ix + 1 >= tab_count)
+                        .on_click(move |_, window, cx| {
+                            right_entity
+                                .update(cx, |this, cx| this.close_tabs_to_right(ix, window, cx));
+                        }),
+                )
+                .separator()
+                .item(
+                    PopupMenuItem::new("Close Tabs with Deleted Files")
+                        .disabled(!has_deleted)
+                        .on_click(move |_, window, cx| {
+                            deleted_entity.update(cx, |this, cx| {
+                                this.close_tabs_with_deleted_files(window, cx)
+                            });
+                        }),
+                )
+            })
             .child(
                 TabBar::new("workspace-tabs")
                     .selected_index(active.unwrap_or(0))
@@ -965,6 +1116,7 @@ impl Render for TinytextApp {
             .on_action(cx.listener(Self::on_quit))
             .on_action(cx.listener(Self::on_toggle_sidebar))
             .on_action(cx.listener(Self::on_install_cli))
+            .on_action(cx.listener(Self::on_about))
             .child(self.render_menu_bar(cx))
             .child(self.render_tab_bar(cx))
             .child(self.render_workspace(cx))
