@@ -23,6 +23,7 @@ gpui_kit::actions!(
         OpenFile,
         SaveFile,
         CloseTab,
+        Quit,
         ToggleSidebar,
         EditUndo,
         EditRedo,
@@ -300,6 +301,10 @@ impl TinytextApp {
         if let Some(ix) = self.active_tab {
             self.close_tab(ix, window, cx);
         }
+    }
+
+    fn on_quit(&mut self, _: &Quit, _window: &mut Window, cx: &mut Context<Self>) {
+        cx.quit();
     }
 
     fn on_toggle_sidebar(
@@ -749,6 +754,7 @@ impl Render for TinytextApp {
             .on_action(cx.listener(Self::on_open_file))
             .on_action(cx.listener(Self::on_save_file))
             .on_action(cx.listener(Self::on_close_tab))
+            .on_action(cx.listener(Self::on_quit))
             .on_action(cx.listener(Self::on_toggle_sidebar))
             .child(self.render_menu_bar(cx))
             .child(self.render_tab_bar(cx))
@@ -829,6 +835,8 @@ fn main() {
                 KeyBinding::new("cmd-o", OpenFile, None),
                 KeyBinding::new("cmd-s", SaveFile, None),
                 KeyBinding::new("cmd-w", CloseTab, None),
+                KeyBinding::new("cmd-q", Quit, None),
+                KeyBinding::new("ctrl-q", Quit, None),
                 KeyBinding::new("cmd-b", ToggleSidebar, None),
             ]);
 
