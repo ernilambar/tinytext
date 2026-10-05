@@ -672,12 +672,17 @@ impl TinytextApp {
             .pl(px(8. + depth as f32 * 12.))
             .pr_2()
             .py_0p5()
-            .gap_1()
             .selected(selected)
             .accessibility_label(label.clone())
-            .child(leading)
-            .child(type_icon)
-            .child(div().text_sm().child(label))
+            .child(
+                div()
+                    .h_flex()
+                    .items_center()
+                    .gap_1()
+                    .child(leading)
+                    .child(type_icon)
+                    .child(div().text_sm().child(label)),
+            )
             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                 this.selected_path = Some(click_path.clone());
                 if is_dir {
