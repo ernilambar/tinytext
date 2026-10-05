@@ -3,10 +3,14 @@
 Tinytext is a native desktop text editor built with [GPUI Kit](https://gpui-kit.com)
 (GPUI + GPUI Component) in Rust.
 
-## Status
+## Features
 
-Phase 1 — Project setup and core shell. The app opens a window containing the top-level
-layout slots (top bar, sidebar, editor, status bar) as placeholders.
+- Multi-tab editing with independent rope-backed buffers
+- Open, edit, and save files asynchronously
+- File explorer sidebar and resizable panes
+- Cursor position, encoding, and language mode in the status bar
+- Global shortcuts (`Cmd+N`, `Cmd+O`, `Cmd+S`, `Cmd+W`, `Cmd+B`)
+- Dark theme by default
 
 ## Requirements
 
@@ -25,7 +29,3 @@ cargo run
 - Middle: File Explorer sidebar | main editor view
 - Bottom: Status bar
 
-## Roadmap
-
-Phase 1 project setup and shell · Phase 2 component tree · Phase 3 buffer logic ·
-Phase 4 syntax highlighting and advanced features.

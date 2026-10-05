@@ -3,9 +3,10 @@ use std::path::{Path, PathBuf};
 
 use gpui_kit::base::StyledExt as _;
 use gpui_kit::component::{
-    ActiveTheme as _, Icon, IconName, Sizable as _, Size,
+    ActiveTheme as _, Icon, IconName, Sizable as _, Size, Theme, ThemeMode,
     badge::Badge,
     button::{Button, ButtonVariants as _},
+    input::{Editor, EditorState, InputEvent},
     list::ListItem,
     menu::{DropdownMenu as _, PopupMenuItem},
     resizable::{h_resizable, resizable_panel},
@@ -46,9 +47,10 @@ const LANGUAGES: [&str; 8] = [
 struct OpenTab {
     path: Option<PathBuf>,
     title: SharedString,
-    content: String,
     language: SharedString,
     dirty: bool,
+    editor: Entity<EditorState>,
+    _subscriptions: Vec<Subscription>,
 }
 
 struct TinytextApp {
@@ -96,21 +98,87 @@ impl TinytextApp {
         self.active().map(|tab| tab.dirty).unwrap_or(false)
     }
 
-    fn on_new_file(&mut self, _: &NewFile, _window: &mut Window, cx: &mut Context<Self>) {
+    fn add_tab(
+        &mut self,
+        path: Option<PathBuf>,
+        content: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let language: SharedString = path
+            .as_deref()
+            .map(language_for)
+            .unwrap_or_else(|| "Plain Text".into());
+        let title: SharedString = path
+            .as_deref()
+            .map(|path| file_name(path).into())
+            .unwrap_or_else(|| "Untitled".into());
+
+        let editor = cx.new(|cx| {
+            EditorState::new(window, cx)
+                .language(editor_language_id(&language))
+                .default_value(content)
+        });
+
+        let change_subscription = cx.subscribe(&editor, |this, editor, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.set_dirty(editor.entity_id(), true, cx);
+            }
+        });
+        let cursor_subscription = cx.observe(&editor, |this, editor, cx| {
+            this.sync_cursor(editor.entity_id(), cx);
+        });
+
         self.tabs.push(OpenTab {
-            path: None,
-            title: "Untitled".into(),
-            content: String::new(),
-            language: "Plain Text".into(),
-            dirty: true,
+            path,
+            title,
+            language,
+            dirty: false,
+            editor: editor.clone(),
+            _subscriptions: vec![change_subscription, cursor_subscription],
         });
         self.active_tab = Some(self.tabs.len() - 1);
-        self.cursor_line = 1;
-        self.cursor_col = 1;
+
+        editor.update(cx, |state, cx| state.focus(window, cx));
+        let position = editor.read(cx).cursor_position();
+        self.cursor_line = position.line as usize + 1;
+        self.cursor_col = position.character as usize + 1;
         cx.notify();
     }
 
-    fn on_open_file(&mut self, _: &OpenFile, _window: &mut Window, cx: &mut Context<Self>) {
+    fn request_open(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(ix) = self
+            .tabs
+            .iter()
+            .position(|tab| tab.path.as_deref() == Some(path.as_path()))
+        {
+            self.activate_tab(ix, window, cx);
+            return;
+        }
+
+        cx.spawn_in(window, async move |this, cx| {
+            let read = cx
+                .background_executor()
+                .spawn({
+                    let path = path.clone();
+                    async move { std::fs::read_to_string(path) }
+                })
+                .await;
+            if let Ok(content) = read {
+                this.update_in(cx, |this, window, cx| {
+                    this.add_tab(Some(path), content, window, cx);
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
+    fn on_new_file(&mut self, _: &NewFile, window: &mut Window, cx: &mut Context<Self>) {
+        self.add_tab(None, String::new(), window, cx);
+    }
+
+    fn on_open_file(&mut self, _: &OpenFile, window: &mut Window, cx: &mut Context<Self>) {
         let receiver = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
@@ -118,14 +186,23 @@ impl TinytextApp {
             prompt: Some("Open File".into()),
         });
 
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(paths))) = receiver.await {
-                this.update(cx, |this, cx| {
-                    for path in paths {
-                        this.open_path(path, cx);
+                for path in paths {
+                    let read = cx
+                        .background_executor()
+                        .spawn({
+                            let path = path.clone();
+                            async move { std::fs::read_to_string(path) }
+                        })
+                        .await;
+                    if let Ok(content) = read {
+                        this.update_in(cx, |this, window, cx| {
+                            this.add_tab(Some(path), content, window, cx);
+                        })
+                        .ok();
                     }
-                })
-                .ok();
+                }
             }
         })
         .detach();
@@ -135,27 +212,69 @@ impl TinytextApp {
         let Some(ix) = self.active_tab else {
             return;
         };
+        let Some(tab) = self.tabs.get(ix) else {
+            return;
+        };
+        let id = tab.editor.entity_id();
 
-        match self.tabs[ix].path.clone() {
-            Some(path) => self.save_tab_to(ix, path, cx),
-            None => {
-                let directory = self.workspace_root.clone();
-                let receiver = cx.prompt_for_new_path(&directory, Some("untitled.txt"));
-
-                cx.spawn(async move |this, cx| {
-                    if let Ok(Ok(Some(path))) = receiver.await {
-                        this.update(cx, |this, cx| this.save_tab_to(ix, path, cx))
-                            .ok();
-                    }
-                })
-                .detach();
-            }
+        if let Some(path) = tab.path.clone() {
+            self.save_editor(id, path, cx);
+            return;
         }
+
+        let directory = self.workspace_root.clone();
+        let receiver = cx.prompt_for_new_path(&directory, Some("untitled.txt"));
+
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(path))) = receiver.await {
+                this.update(cx, |this, cx| this.save_editor(id, path, cx))
+                    .ok();
+            }
+        })
+        .detach();
     }
 
-    fn on_close_tab(&mut self, _: &CloseTab, _window: &mut Window, cx: &mut Context<Self>) {
+    fn save_editor(&mut self, id: EntityId, path: PathBuf, cx: &mut Context<Self>) {
+        let Some(tab) = self.tabs.iter().find(|tab| tab.editor.entity_id() == id) else {
+            return;
+        };
+        let text = tab.editor.read(cx).text().to_string();
+
+        cx.spawn(async move |this, cx| {
+            let write_path = path.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move { std::fs::write(write_path, text) })
+                .await;
+            if result.is_ok() {
+                this.update(cx, |this, cx| this.finish_save(id, path, cx))
+                    .ok();
+            }
+        })
+        .detach();
+    }
+
+    fn finish_save(&mut self, id: EntityId, path: PathBuf, cx: &mut Context<Self>) {
+        if let Some(tab) = self
+            .tabs
+            .iter_mut()
+            .find(|tab| tab.editor.entity_id() == id)
+        {
+            let language = language_for(&path);
+            tab.title = file_name(&path).into();
+            tab.editor.update(cx, |state, cx| {
+                state.set_highlighter(editor_language_id(&language), cx);
+            });
+            tab.language = language;
+            tab.path = Some(path);
+            tab.dirty = false;
+        }
+        cx.notify();
+    }
+
+    fn on_close_tab(&mut self, _: &CloseTab, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(ix) = self.active_tab {
-            self.close_tab(ix, cx);
+            self.close_tab(ix, window, cx);
         }
     }
 
@@ -169,46 +288,19 @@ impl TinytextApp {
         cx.notify();
     }
 
-    fn open_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        if let Some(ix) = self
-            .tabs
-            .iter()
-            .position(|tab| tab.path.as_deref() == Some(path.as_path()))
-        {
-            self.active_tab = Some(ix);
-            cx.notify();
-            return;
-        }
-
-        let content = std::fs::read_to_string(&path).unwrap_or_default();
-        self.tabs.push(OpenTab {
-            language: language_for(&path),
-            title: file_name(&path).into(),
-            path: Some(path),
-            content,
-            dirty: false,
-        });
-        self.active_tab = Some(self.tabs.len() - 1);
-        self.cursor_line = 1;
-        self.cursor_col = 1;
-        cx.notify();
-    }
-
-    fn save_tab_to(&mut self, ix: usize, path: PathBuf, cx: &mut Context<Self>) {
-        let Some(tab) = self.tabs.get_mut(ix) else {
-            return;
-        };
-
-        if std::fs::write(&path, tab.content.as_bytes()).is_ok() {
-            tab.title = file_name(&path).into();
-            tab.language = language_for(&path);
-            tab.path = Some(path);
-            tab.dirty = false;
+    fn activate_tab(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.active_tab = Some(ix);
+        if let Some(tab) = self.tabs.get(ix) {
+            let editor = tab.editor.clone();
+            editor.update(cx, |state, cx| state.focus(window, cx));
+            let position = editor.read(cx).cursor_position();
+            self.cursor_line = position.line as usize + 1;
+            self.cursor_col = position.character as usize + 1;
         }
         cx.notify();
     }
 
-    fn close_tab(&mut self, ix: usize, cx: &mut Context<Self>) {
+    fn close_tab(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         if ix >= self.tabs.len() {
             return;
         }
@@ -221,6 +313,41 @@ impl TinytextApp {
             let active = if ix < active { active - 1 } else { active };
             Some(active.min(self.tabs.len() - 1))
         };
+
+        if let Some(tab) = self.active_tab.and_then(|ix| self.tabs.get(ix)) {
+            tab.editor.update(cx, |state, cx| state.focus(window, cx));
+        }
+        cx.notify();
+    }
+
+    fn set_dirty(&mut self, id: EntityId, dirty: bool, cx: &mut Context<Self>) {
+        if let Some(tab) = self
+            .tabs
+            .iter_mut()
+            .find(|tab| tab.editor.entity_id() == id)
+            && tab.dirty != dirty
+        {
+            tab.dirty = dirty;
+            cx.notify();
+        }
+    }
+
+    fn sync_cursor(&mut self, id: EntityId, cx: &mut Context<Self>) {
+        let Some(ix) = self.active_tab else {
+            return;
+        };
+        let position = {
+            let Some(tab) = self.tabs.get(ix) else {
+                return;
+            };
+            if tab.editor.entity_id() != id {
+                return;
+            }
+            tab.editor.read(cx).cursor_position()
+        };
+
+        self.cursor_line = position.line as usize + 1;
+        self.cursor_col = position.character as usize + 1;
         cx.notify();
     }
 
@@ -311,14 +438,13 @@ impl TinytextApp {
                             .xsmall()
                             .ghost()
                             .icon(IconName::Close)
-                            .on_click(move |_, _, cx| {
+                            .on_click(move |_, window, cx| {
                                 cx.stop_propagation();
-                                close_entity.update(cx, |this, cx| this.close_tab(ix, cx));
+                                close_entity.update(cx, |this, cx| this.close_tab(ix, window, cx));
                             }),
                     )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.active_tab = Some(ix);
-                        cx.notify();
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.activate_tab(ix, window, cx);
                     }))
             })
             .collect();
@@ -446,7 +572,7 @@ impl TinytextApp {
             .child(leading)
             .child(type_icon)
             .child(div().text_sm().child(label))
-            .on_click(cx.listener(move |this, event: &ClickEvent, _window, cx| {
+            .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                 this.selected_path = Some(click_path.clone());
                 if is_dir {
                     if this.expanded.contains(&click_path) {
@@ -455,7 +581,7 @@ impl TinytextApp {
                         this.expanded.insert(click_path.clone());
                     }
                 } else if event.click_count() >= 2 {
-                    this.open_path(click_path.clone(), cx);
+                    this.request_open(click_path.clone(), window, cx);
                 }
                 cx.notify();
             }))
@@ -465,13 +591,14 @@ impl TinytextApp {
     fn render_editor(&self, cx: &mut Context<Self>) -> AnyElement {
         match self.active() {
             Some(tab) => div()
-                .id("editor-scroll")
                 .size_full()
-                .overflow_y_scroll()
-                .p_3()
-                .font_family("Menlo")
-                .text_sm()
-                .children(self.editor_lines(&tab.content, cx))
+                .bg(cx.theme().background)
+                .child(
+                    Editor::new(&tab.editor)
+                        .appearance(false)
+                        .bordered(false)
+                        .h_full(),
+                )
                 .into_any_element(),
             None => div()
                 .flex()
@@ -482,30 +609,6 @@ impl TinytextApp {
                 .child("No file open")
                 .into_any_element(),
         }
-    }
-
-    fn editor_lines(&self, content: &str, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let gutter = cx.theme().muted_foreground;
-
-        content
-            .lines()
-            .enumerate()
-            .map(|(ix, line)| {
-                div()
-                    .h_flex()
-                    .h(px(18.))
-                    .gap_3()
-                    .child(
-                        div()
-                            .w(px(32.))
-                            .flex_none()
-                            .text_color(gutter)
-                            .child(format!("{}", ix + 1)),
-                    )
-                    .child(div().child(line.to_string()))
-                    .into_any_element()
-            })
-            .collect()
     }
 
     fn render_status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -527,7 +630,10 @@ impl TinytextApp {
                         entity.update(cx, |this, cx| {
                             if let Some(tab) = this.active_tab.and_then(|ix| this.tabs.get_mut(ix))
                             {
-                                tab.language = value;
+                                tab.language = value.clone();
+                                tab.editor.update(cx, |state, cx| {
+                                    state.set_highlighter(editor_language_id(&value), cx);
+                                });
                                 cx.notify();
                             }
                         });
@@ -609,6 +715,19 @@ fn language_for(path: &Path) -> SharedString {
     }
 }
 
+fn editor_language_id(language: &str) -> &'static str {
+    match language {
+        "Rust" => "rust",
+        "TOML" => "toml",
+        "JSON" => "json",
+        "Markdown" => "markdown",
+        "JavaScript" => "javascript",
+        "TypeScript" => "typescript",
+        "Python" => "python",
+        _ => "plaintext",
+    }
+}
+
 fn read_dir(dir: &Path) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
@@ -637,6 +756,14 @@ fn main() {
         .with_assets(gpui_kit::assets::Assets)
         .run(|cx| {
             gpui_kit::init(cx);
+            Theme::change(ThemeMode::Dark, None, cx);
+            cx.bind_keys([
+                KeyBinding::new("cmd-n", NewFile, None),
+                KeyBinding::new("cmd-o", OpenFile, None),
+                KeyBinding::new("cmd-s", SaveFile, None),
+                KeyBinding::new("cmd-w", CloseTab, None),
+                KeyBinding::new("cmd-b", ToggleSidebar, None),
+            ]);
 
             let options = WindowOptions {
                 titlebar: Some(TitlebarOptions {
