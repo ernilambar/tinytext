@@ -7,7 +7,8 @@ project, making changes, and running the checks required before a pull request.
 ## Who can contribute
 
 Anyone. The project is maintained by
-[ernilambar](https://github.com/ernilambar), but external contributions are encouraged.
+[Nilambar Sharma](https://nilambar.net/) ([@ernilambar](https://github.com/ernilambar)),
+but external contributions are encouraged.
 If you are planning a larger change, open an issue to discuss the approach first so we
 can agree on the direction before you write code.
 
