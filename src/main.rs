@@ -903,7 +903,37 @@ fn hex_digit(byte: u8) -> Option<u8> {
     }
 }
 
+fn print_help() {
+    println!(
+        "\
+{name} {version}
+A native macOS text editor built with GPUI Kit
+
+Usage:
+  tinytext [OPTIONS] [FOLDER]
+
+Arguments:
+  [FOLDER]  Open the given folder in the sidebar
+
+Options:
+  -h, --help     Print this help and exit
+  -V, --version  Print version and exit",
+        name = env!("CARGO_PKG_NAME"),
+        version = env!("CARGO_PKG_VERSION"),
+    );
+}
+
 fn main() {
+    if std::env::args().any(|arg| arg == "--help" || arg == "-h") {
+        print_help();
+        return;
+    }
+
+    if std::env::args().any(|arg| arg == "--version" || arg == "-V") {
+        println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
     let (open_tx, open_rx) = async_channel::unbounded::<Vec<PathBuf>>();
 
     let application = gpui_kit::application().with_assets(gpui_kit::assets::Assets);
