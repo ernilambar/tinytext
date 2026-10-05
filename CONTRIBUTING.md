@@ -64,8 +64,8 @@ installing it. Regenerate the placeholder icon with `python3 scripts/make-icon.p
 
 - `src/main.rs`: entry point, actions, and keybindings
 - `src/app/`: `TinytextApp` state, split into `files.rs`, `tabs.rs`, and `ui.rs`
-- `src/cli.rs`, `src/language.rs`, `src/paths.rs`, `src/session.rs`: helpers with no GPUI
-  dependency
+- `src/cli.rs`, `src/language.rs`, `src/paths.rs`, `src/session.rs`, `src/update.rs`:
+  helpers with no GPUI dependency
 
 Add a new module only once a feature is large enough to justify the boundary.
 

@@ -17,8 +17,8 @@ use gpui_kit::*;
 use crate::language::{LANGUAGES, editor_language_id};
 use crate::paths::{file_name, read_dir};
 use crate::{
-    About, CloseTab, EditCopy, EditCut, EditPaste, EditRedo, EditSelectAll, EditUndo, InstallCli,
-    NewFile, OpenFile, OpenFolder, Quit, SaveFile, ToggleSidebar,
+    About, CheckForUpdates, CloseTab, EditCopy, EditCut, EditPaste, EditRedo, EditSelectAll,
+    EditUndo, InstallCli, NewFile, OpenFile, OpenFolder, Quit, SaveFile, ToggleSidebar,
 };
 
 use super::TinytextApp;
@@ -92,6 +92,7 @@ impl TinytextApp {
                     .label("Help")
                     .dropdown_menu(|menu, _, _| {
                         menu.menu("Install \"tinytext\" Command in PATH", Box::new(InstallCli))
+                            .menu("Check for Updates…", Box::new(CheckForUpdates))
                             .separator()
                             .menu("About Tinytext", Box::new(About))
                     }),

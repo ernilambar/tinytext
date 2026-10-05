@@ -13,7 +13,8 @@ use gpui_kit::*;
 
 use crate::cli::{app_bundle_path, install_cli};
 use crate::session::{SessionState, session_path};
-use crate::{About, InstallCli, Quit, ToggleSidebar};
+use crate::update::{INSTALL_COMMAND, is_newer, latest_version};
+use crate::{About, CheckForUpdates, InstallCli, Quit, ToggleSidebar};
 
 struct OpenTab {
     path: Option<PathBuf>,
@@ -224,6 +225,65 @@ impl TinytextApp {
         .detach();
     }
 
+    fn on_check_for_updates(
+        &mut self,
+        _: &CheckForUpdates,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn_in(window, async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async { latest_version() })
+                .await;
+
+            this.update_in(cx, |_this, window, cx| {
+                let current = env!("CARGO_PKG_VERSION");
+                match result {
+                    Ok(latest) if is_newer(&latest, current) => {
+                        window.open_alert_dialog(cx, move |alert, _, _| {
+                            alert
+                                .title("Update Available")
+                                .description(
+                                    div()
+                                        .v_flex()
+                                        .gap_1()
+                                        .child(format!(
+                                            "Tinytext {latest} is available. You have {current}."
+                                        ))
+                                        .child("Save your work, then run this in Terminal:")
+                                        .child(INSTALL_COMMAND),
+                                )
+                                .ok_text("Copy Command")
+                                .show_cancel(true)
+                                .cancel_text("Later")
+                                .on_ok(|_, window, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(
+                                        INSTALL_COMMAND.to_string(),
+                                    ));
+                                    window.push_notification(
+                                        Notification::success("Copied install command"),
+                                        cx,
+                                    );
+                                    true
+                                })
+                        });
+                    }
+                    Ok(_) => window.push_notification(
+                        Notification::success(format!("Tinytext {current} is up to date")),
+                        cx,
+                    ),
+                    Err(message) => window.push_notification(
+                        Notification::error(format!("Could not check for updates: {message}")),
+                        cx,
+                    ),
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     fn on_about(&mut self, _: &About, window: &mut Window, cx: &mut Context<Self>) {
         window.open_alert_dialog(cx, |alert, _, _| {
             alert
@@ -260,6 +320,7 @@ impl Render for TinytextApp {
             .on_action(cx.listener(Self::on_quit))
             .on_action(cx.listener(Self::on_toggle_sidebar))
             .on_action(cx.listener(Self::on_install_cli))
+            .on_action(cx.listener(Self::on_check_for_updates))
             .on_action(cx.listener(Self::on_about))
             .child(self.render_menu_bar(cx))
             .child(self.render_tab_bar(cx))

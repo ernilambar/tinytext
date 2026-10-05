@@ -45,7 +45,9 @@ xattr -dr com.apple.quarantine /Applications/Tinytext.app
 
 ## Update
 
-Run the install command again. It replaces the existing app with the latest release.
+Choose **Help → Check for Updates…** to see if a new version is out. To update, save
+your work and run the install command again. It replaces the existing app with the
+latest release.
 
 ## Usage
 

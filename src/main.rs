@@ -3,6 +3,7 @@ mod cli;
 mod language;
 mod paths;
 mod session;
+mod update;
 
 use std::path::PathBuf;
 
@@ -31,6 +32,7 @@ gpui_kit::actions!(
         EditPaste,
         EditSelectAll,
         InstallCli,
+        CheckForUpdates,
         About,
     ]
 );
