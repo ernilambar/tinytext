@@ -9,6 +9,7 @@ use gpui_kit::component::{
     list::ListItem,
     menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem},
     resizable::{h_resizable, resizable_panel},
+    scroll::ScrollableElement as _,
     status_bar::StatusBar,
     tab::{Tab, TabBar},
 };
@@ -142,11 +143,20 @@ impl TinytextApp {
                             .size_range(px(160.)..px(480.))
                             .child(self.render_sidebar(&root, cx)),
                     )
-                    .child(resizable_panel().child(self.render_editor(cx))),
+                    .child(resizable_panel().child(self.render_editor_panel(cx))),
             )
         } else {
-            div().flex_1().min_h_0().child(self.render_editor(cx))
+            div().flex_1().min_h_0().child(self.render_editor_panel(cx))
         }
+    }
+
+    pub(super) fn render_editor_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .v_flex()
+            .size_full()
+            .min_w_0()
+            .child(self.render_tab_bar(cx))
+            .child(div().flex_1().min_h_0().child(self.render_editor(cx)))
     }
 
     pub(super) fn render_sidebar(&self, root: &Path, cx: &mut Context<Self>) -> impl IntoElement {
@@ -174,8 +184,8 @@ impl TinytextApp {
                     .id("explorer-scroll")
                     .flex_1()
                     .min_h_0()
-                    .overflow_y_scroll()
                     .py_1()
+                    .overflow_scrollbar()
                     .children(rows),
             )
     }
@@ -246,7 +256,7 @@ impl TinytextApp {
                     .gap_1()
                     .child(leading)
                     .child(type_icon)
-                    .child(div().text_sm().child(label)),
+                    .child(div().text_sm().whitespace_nowrap().child(label)),
             )
             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                 this.selected_path = Some(click_path.clone());
