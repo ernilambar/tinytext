@@ -24,6 +24,9 @@ gpui_kit::actions!(
         SaveFile,
         CloseTab,
         Quit,
+        Hide,
+        HideOthers,
+        ShowAll,
         ToggleSidebar,
         InstallCli,
         CheckForUpdates,
@@ -76,8 +79,13 @@ fn main() {
             KeyBinding::new("cmd-s", SaveFile, None),
             KeyBinding::new("cmd-w", CloseTab, None),
             KeyBinding::new("cmd-q", Quit, None),
+            KeyBinding::new("cmd-h", Hide, None),
+            KeyBinding::new("alt-cmd-h", HideOthers, None),
             KeyBinding::new("cmd-b", ToggleSidebar, None),
         ]);
+        cx.on_action(|_: &Hide, cx| cx.hide());
+        cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
+        cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
         cx.set_menus(app_menus());
 
         let options = WindowOptions {
@@ -123,6 +131,12 @@ fn app_menus() -> Vec<Menu> {
             MenuItem::action("Check for Updates…", CheckForUpdates),
             MenuItem::separator(),
             MenuItem::action("Install Command Line Tool…", InstallCli),
+            MenuItem::separator(),
+            MenuItem::os_submenu("Services", SystemMenuType::Services),
+            MenuItem::separator(),
+            MenuItem::action("Hide Tinytext", Hide),
+            MenuItem::action("Hide Others", HideOthers),
+            MenuItem::action("Show All", ShowAll),
             MenuItem::separator(),
             MenuItem::action("Quit Tinytext", Quit),
         ]),
