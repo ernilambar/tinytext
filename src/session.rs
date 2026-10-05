@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-const BUNDLE_ID: &str = "net.nilambar.tinytext";
+use crate::paths::support_dir;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -16,14 +16,7 @@ pub(crate) struct SessionState {
 }
 
 pub(crate) fn session_path() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME")?;
-    Some(
-        PathBuf::from(home)
-            .join("Library")
-            .join("Application Support")
-            .join(BUNDLE_ID)
-            .join("session.json"),
-    )
+    Some(support_dir()?.join("session.json"))
 }
 
 pub(crate) fn load_session() -> Option<SessionState> {

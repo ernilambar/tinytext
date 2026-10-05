@@ -1,5 +1,18 @@
 use std::path::{Path, PathBuf};
 
+const BUNDLE_ID: &str = "net.nilambar.tinytext";
+
+/// `~/Library/Application Support/<bundle id>`, home of session and settings files.
+pub(crate) fn support_dir() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    Some(
+        PathBuf::from(home)
+            .join("Library")
+            .join("Application Support")
+            .join(BUNDLE_ID),
+    )
+}
+
 pub(crate) fn file_name(path: &Path) -> String {
     path.file_name()
         .map(|name| name.to_string_lossy().to_string())

@@ -3,7 +3,7 @@ mod tabs;
 mod ui;
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use gpui_kit::base::StyledExt as _;
 use gpui_kit::component::{
@@ -13,8 +13,9 @@ use gpui_kit::*;
 
 use crate::cli::{app_bundle_path, install_cli};
 use crate::session::{SessionState, session_path};
+use crate::settings::{EditorSettings, Settings, font_family_issue, load_settings, settings_path};
 use crate::update::{INSTALL_COMMAND, is_newer, latest_version};
-use crate::{About, CheckForUpdates, InstallCli, Quit, ToggleSidebar};
+use crate::{About, CheckForUpdates, InstallCli, OpenSettings, Quit, ToggleSidebar};
 
 struct OpenTab {
     path: Option<PathBuf>,
@@ -36,10 +37,15 @@ pub(crate) struct TinytextApp {
     sidebar_visible: bool,
     cursor_line: usize,
     cursor_col: usize,
+    settings: Settings,
 }
 
 impl TinytextApp {
-    pub(crate) fn new(workspace_root: Option<PathBuf>, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(
+        workspace_root: Option<PathBuf>,
+        settings: Settings,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let mut expanded = HashSet::new();
         if let Some(root) = &workspace_root {
             expanded.insert(root.clone());
@@ -57,6 +63,7 @@ impl TinytextApp {
             sidebar_visible,
             cursor_line: 1,
             cursor_col: 1,
+            settings,
         }
     }
 
@@ -284,6 +291,83 @@ impl TinytextApp {
         .detach();
     }
 
+    fn on_open_settings(&mut self, _: &OpenSettings, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(path) = settings_path() else {
+            return;
+        };
+
+        if !path.exists() {
+            let starter = Settings {
+                editor: EditorSettings {
+                    font_family: Some(cx.theme().mono_font_family.to_string()),
+                    font_size: Some(cx.theme().mono_font_size.as_f32()),
+                },
+            };
+            let written = serde_json::to_string_pretty(&starter)
+                .map_err(std::io::Error::other)
+                .and_then(|json| {
+                    if let Some(parent) = path.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    std::fs::write(&path, json + "\n")
+                });
+            if let Err(error) = written {
+                window.push_notification(
+                    Notification::error(format!("Could not create settings: {error}")),
+                    cx,
+                );
+                return;
+            }
+        }
+
+        self.request_open(path, window, cx);
+    }
+
+    /// Re-applies settings when the saved file is the settings file. Invalid
+    /// JSON keeps the previous settings and reports the parse error.
+    pub(super) fn reload_settings_if(
+        &mut self,
+        path: &Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if settings_path().as_deref() != Some(path) {
+            return;
+        }
+
+        match load_settings() {
+            Ok(settings) => {
+                self.settings = settings;
+                self.check_font_family(window, cx);
+                cx.notify();
+            }
+            Err(message) => window.push_notification(Notification::error(message), cx),
+        }
+    }
+
+    /// Warns when the configured editor font is not installed. Font enumeration
+    /// is slow on macOS, so it runs off the main thread.
+    pub(crate) fn check_font_family(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(family) = self.settings.editor.font_family.clone() else {
+            return;
+        };
+        let text_system = cx.text_system().clone();
+
+        cx.spawn_in(window, async move |this, cx| {
+            let installed = cx
+                .background_executor()
+                .spawn(async move { text_system.all_font_names() })
+                .await;
+            if let Some(message) = font_family_issue(&family, &installed) {
+                this.update_in(cx, |_this, window, cx| {
+                    window.push_notification(Notification::warning(message), cx);
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
     fn on_about(&mut self, _: &About, window: &mut Window, cx: &mut Context<Self>) {
         window.open_alert_dialog(cx, |alert, _, _| {
             alert
@@ -322,6 +406,7 @@ impl Render for TinytextApp {
             .on_action(cx.listener(Self::on_install_cli))
             .on_action(cx.listener(Self::on_check_for_updates))
             .on_action(cx.listener(Self::on_about))
+            .on_action(cx.listener(Self::on_open_settings))
             .child(self.render_workspace(cx))
             .child(self.render_status_bar(cx))
     }

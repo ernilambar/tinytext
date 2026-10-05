@@ -52,9 +52,13 @@ in headless environments.
 - Never edit `Cargo.lock` by hand; regenerate it with a `cargo` command.
 - Module layout: `main.rs` (entry, actions, keybindings), `app/` (`TinytextApp` state;
   `files.rs`, `tabs.rs`, `ui.rs` hold further `impl TinytextApp` blocks), and GPUI-free
-  helpers in `cli.rs`, `language.rs`, `paths.rs`, `session.rs`, `update.rs`. Code under
-  `app/` reads private fields directly; cross-file methods use `pub(super)`. Add a new
-  module only once a feature is large enough to justify the boundary.
+  helpers in `cli.rs`, `language.rs`, `paths.rs`, `session.rs`, `settings.rs`,
+  `update.rs`. Code under `app/` reads private fields directly; cross-file methods use
+  `pub(super)`. Add a new module only once a feature is large enough to justify the
+  boundary.
+- `session.json` (app-written state) and `settings.json` (user-authored preferences) both
+  live in `paths::support_dir()`. The app never rewrites `settings.json`; it only creates
+  a starter file. Group new settings keys by area (`editor.*`, `ui.*`).
 - This project targets macOS only. Do not add cross-platform code paths.
 
 ## Releasing

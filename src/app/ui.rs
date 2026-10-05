@@ -13,6 +13,7 @@ use gpui_kit::component::{
     status_bar::StatusBar,
     tab::{Tab, TabBar},
 };
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::file_icons::{file_icon, folder_icon};
@@ -284,6 +285,13 @@ impl TinytextApp {
                     Editor::new(&tab.editor)
                         .appearance(false)
                         .bordered(false)
+                        .when_some(
+                            self.settings.editor.font_family.clone(),
+                            |editor, family| editor.font_family(family),
+                        )
+                        .when_some(self.settings.editor.font_size(), |editor, size| {
+                            editor.text_size(px(size))
+                        })
                         .h_full(),
                 )
                 .into_any_element(),

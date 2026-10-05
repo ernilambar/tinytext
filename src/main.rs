@@ -4,17 +4,19 @@ mod file_icons;
 mod language;
 mod paths;
 mod session;
+mod settings;
 mod update;
 
 use std::path::PathBuf;
 
-use gpui_kit::component::{Theme, ThemeMode, input};
+use gpui_kit::component::{Theme, ThemeMode, WindowExt as _, input, notification::Notification};
 use gpui_kit::*;
 
 use app::TinytextApp;
 use cli::{CliCommand, parse_args, print_help};
 use paths::path_from_file_url;
 use session::load_session;
+use settings::load_settings;
 
 gpui_kit::actions!(
     tinytext,
@@ -32,6 +34,7 @@ gpui_kit::actions!(
         InstallCli,
         CheckForUpdates,
         About,
+        OpenSettings,
     ]
 );
 
@@ -81,6 +84,7 @@ fn main() {
             .as_ref()
             .map(PathBuf::from)
             .filter(|path| path.is_dir());
+        let settings = load_settings();
         let session = if argument.is_none() {
             load_session()
         } else {
@@ -96,6 +100,7 @@ fn main() {
             KeyBinding::new("cmd-h", Hide, None),
             KeyBinding::new("alt-cmd-h", HideOthers, None),
             KeyBinding::new("cmd-b", ToggleSidebar, None),
+            KeyBinding::new("cmd-,", OpenSettings, None),
         ]);
         cx.on_action(|_: &Hide, cx| cx.hide());
         cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
@@ -111,10 +116,21 @@ fn main() {
         };
 
         gpui_kit::open_window(options, cx, move |window, cx| {
-            let app = cx.new(|cx| TinytextApp::new(initial_folder.clone(), cx));
+            let (settings, settings_error) = match settings {
+                Ok(settings) => (settings, None),
+                Err(message) => (Default::default(), Some(message)),
+            };
+            let app = cx.new(|cx| TinytextApp::new(initial_folder.clone(), settings, cx));
+            // The notification layer is attached after this closure returns.
+            if let Some(message) = settings_error {
+                window.defer(cx, move |window, cx| {
+                    window.push_notification(Notification::error(message), cx);
+                });
+            }
             if let Some(session) = session {
                 app.update(cx, |this, cx| this.restore_session(session, window, cx));
             }
+            app.update(cx, |this, cx| this.check_font_family(window, cx));
             let focus_handle = app.read(cx).focus_handle.clone();
             focus_handle.focus(window, cx);
 
@@ -143,6 +159,8 @@ fn app_menus() -> Vec<Menu> {
         Menu::new("Tinytext").items([
             MenuItem::action("About Tinytext", About),
             MenuItem::action("Check for Updates…", CheckForUpdates),
+            MenuItem::separator(),
+            MenuItem::action("Settings…", OpenSettings),
             MenuItem::separator(),
             MenuItem::action("Install Command Line Tool…", InstallCli),
             MenuItem::separator(),
