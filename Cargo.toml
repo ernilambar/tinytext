@@ -8,6 +8,7 @@ repository = "https://github.com/ernilambar/tinytext"
 
 [dependencies]
 anyhow = "1.0.104"
+async-channel = "2"
 gpui-kit = { version = "0.7.1", features = [
     "tree-sitter",
     "tree-sitter-css",
@@ -33,7 +34,7 @@ icon = ["assets/icon.icns"]
 category = "public.app-category.developer-tools"
 short_description = "A native macOS text editor built with GPUI Kit"
 copyright = "Copyright © 2026 Nilambar Sharma"
-osx = { minimum_system_version = "15.0" }
+osx = { minimum_system_version = "15.0", info_plist_exts = ["assets/Info.plist"] }
 
 # Keep GPUI's framework crates optimized in debug builds; without this the app
 # renders and responds far below the release build.

@@ -6797,6 +6797,7 @@ name = "tinytext"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-channel",
  "gpui-kit",
  "ropey 1.6.1",
  "serde",

@@ -824,36 +824,100 @@ fn read_dir(dir: &Path) -> Vec<PathBuf> {
     dirs
 }
 
+fn path_from_file_url(url: &str) -> Option<PathBuf> {
+    let rest = url.strip_prefix("file://")?;
+    let path = rest.strip_prefix("localhost").unwrap_or(rest);
+    path.starts_with('/')
+        .then(|| PathBuf::from(percent_decode(path)))
+}
+
+fn percent_decode(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] == b'%'
+            && index + 2 < bytes.len()
+            && let (Some(high), Some(low)) =
+                (hex_digit(bytes[index + 1]), hex_digit(bytes[index + 2]))
+        {
+            decoded.push((high << 4) | low);
+            index += 3;
+            continue;
+        }
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+
+    String::from_utf8_lossy(&decoded).into_owned()
+}
+
+fn hex_digit(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
 fn main() {
-    gpui_kit::application()
-        .with_assets(gpui_kit::assets::Assets)
-        .run(|cx| {
-            gpui_kit::init(cx);
-            Theme::change(ThemeMode::Dark, None, cx);
-            cx.bind_keys([
-                KeyBinding::new("cmd-n", NewFile, None),
-                KeyBinding::new("cmd-o", OpenFile, None),
-                KeyBinding::new("cmd-s", SaveFile, None),
-                KeyBinding::new("cmd-w", CloseTab, None),
-                KeyBinding::new("cmd-q", Quit, None),
-                KeyBinding::new("ctrl-q", Quit, None),
-                KeyBinding::new("cmd-b", ToggleSidebar, None),
-            ]);
+    let (open_tx, open_rx) = async_channel::unbounded::<Vec<PathBuf>>();
 
-            let options = WindowOptions {
-                titlebar: Some(TitlebarOptions {
-                    title: Some("Tinytext".into()),
-                    ..Default::default()
-                }),
+    let application = gpui_kit::application().with_assets(gpui_kit::assets::Assets);
+    application.on_open_urls(move |urls| {
+        let paths: Vec<PathBuf> = urls
+            .iter()
+            .filter_map(|url| path_from_file_url(url))
+            .collect();
+        if !paths.is_empty() {
+            let _ = open_tx.try_send(paths);
+        }
+    });
+
+    application.run(move |cx| {
+        gpui_kit::init(cx);
+        Theme::change(ThemeMode::Dark, None, cx);
+        cx.bind_keys([
+            KeyBinding::new("cmd-n", NewFile, None),
+            KeyBinding::new("cmd-o", OpenFile, None),
+            KeyBinding::new("cmd-s", SaveFile, None),
+            KeyBinding::new("cmd-w", CloseTab, None),
+            KeyBinding::new("cmd-q", Quit, None),
+            KeyBinding::new("ctrl-q", Quit, None),
+            KeyBinding::new("cmd-b", ToggleSidebar, None),
+        ]);
+
+        let options = WindowOptions {
+            titlebar: Some(TitlebarOptions {
+                title: Some("Tinytext".into()),
                 ..Default::default()
-            };
+            }),
+            ..Default::default()
+        };
 
-            gpui_kit::open_window(options, cx, |window, cx| {
-                let app = cx.new(TinytextApp::new);
-                let focus_handle = app.read(cx).focus_handle.clone();
-                focus_handle.focus(window, cx);
-                app
-            })
-            .expect("failed to open window");
-        });
+        gpui_kit::open_window(options, cx, move |window, cx| {
+            let app = cx.new(TinytextApp::new);
+            let focus_handle = app.read(cx).focus_handle.clone();
+            focus_handle.focus(window, cx);
+
+            app.update(cx, |_this, cx| {
+                cx.spawn_in(window, async move |this, cx| {
+                    while let Ok(paths) = open_rx.recv().await {
+                        this.update_in(cx, |this, window, cx| {
+                            for path in paths {
+                                this.request_open(path, window, cx);
+                            }
+                        })
+                        .ok();
+                    }
+                })
+                .detach();
+            });
+
+            app
+        })
+        .expect("failed to open window");
+    });
 }

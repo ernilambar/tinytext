@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Command-line launcher for Tinytext.
+#
+#   tinytext file.txt
+#
+# Hands the given paths to the running Tinytext app (or launches it) through
+# LaunchServices, so files open as tabs in the existing window. This is why
+# repeated invocations reuse one instance instead of starting a new process.
+#
+# Set TINYTEXT_APP to point at a bundle outside /Applications.
+set -euo pipefail
+
+APP="${TINYTEXT_APP:-/Applications/Tinytext.app}"
+
+if [ "$#" -eq 0 ]; then
+    exec open -a "$APP"
+fi
+
+exec open -a "$APP" -- "$@"
