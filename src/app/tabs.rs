@@ -1,0 +1,257 @@
+use std::path::PathBuf;
+
+use gpui_kit::component::{
+    WindowExt as _,
+    button::ButtonVariant,
+    input::{EditorState, InputEvent},
+};
+use gpui_kit::*;
+
+use crate::CloseTab;
+use crate::language::{editor_language_id, language_for};
+use crate::paths::file_name;
+
+use super::{OpenTab, TinytextApp};
+
+impl TinytextApp {
+    pub(super) fn add_tab(
+        &mut self,
+        path: Option<PathBuf>,
+        content: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let language: SharedString = path
+            .as_deref()
+            .map(language_for)
+            .unwrap_or_else(|| "Plain Text".into());
+        let title: SharedString = path
+            .as_deref()
+            .map(|path| file_name(path).into())
+            .unwrap_or_else(|| "Untitled".into());
+
+        let editor = cx.new(|cx| {
+            EditorState::new(window, cx)
+                .language(editor_language_id(&language))
+                .default_value(content)
+        });
+
+        let change_subscription = cx.subscribe(&editor, |this, editor, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.set_dirty(editor.entity_id(), true, cx);
+            }
+        });
+        let cursor_subscription = cx.observe(&editor, |this, editor, cx| {
+            this.sync_cursor(editor.entity_id(), cx);
+        });
+
+        self.tabs.push(OpenTab {
+            path,
+            title,
+            language,
+            dirty: false,
+            editor: editor.clone(),
+            _subscriptions: vec![change_subscription, cursor_subscription],
+        });
+        self.active_tab = Some(self.tabs.len() - 1);
+
+        editor.update(cx, |state, cx| state.focus(window, cx));
+        let position = editor.read(cx).cursor_position();
+        self.cursor_line = position.line as usize + 1;
+        self.cursor_col = position.character as usize + 1;
+        self.save_session();
+        cx.notify();
+    }
+
+    pub(super) fn on_close_tab(
+        &mut self,
+        _: &CloseTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(ix) = self.active_tab {
+            self.close_tab(ix, window, cx);
+        }
+    }
+
+    pub(super) fn activate_tab(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.active_tab = Some(ix);
+        if let Some(tab) = self.tabs.get(ix) {
+            let editor = tab.editor.clone();
+            editor.update(cx, |state, cx| state.focus(window, cx));
+            let position = editor.read(cx).cursor_position();
+            self.cursor_line = position.line as usize + 1;
+            self.cursor_col = position.character as usize + 1;
+        }
+        cx.notify();
+    }
+
+    pub(super) fn close_tab(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((id, dirty, title)) = self
+            .tabs
+            .get(ix)
+            .map(|tab| (tab.editor.entity_id(), tab.dirty, tab.title.clone()))
+        else {
+            return;
+        };
+
+        if !dirty {
+            self.remove_tab(id, window, cx);
+            return;
+        }
+
+        let entity = cx.entity();
+        window.open_alert_dialog(cx, move |alert, _window, _cx| {
+            let entity = entity.clone();
+            alert
+                .confirm()
+                .title("Unsaved Changes")
+                .description(format!(
+                    "\"{title}\" has unsaved changes. Close it without saving?"
+                ))
+                .ok_text("Close Without Saving")
+                .ok_variant(ButtonVariant::Danger)
+                .cancel_text("Keep Editing")
+                .on_ok(move |_, window, cx| {
+                    entity.update(cx, |this, cx| this.remove_tab(id, window, cx));
+                    true
+                })
+        });
+    }
+
+    pub(super) fn close_other_tabs(
+        &mut self,
+        ix: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let indices = (0..self.tabs.len()).filter(|other| *other != ix).collect();
+        self.close_tabs(indices, window, cx);
+    }
+
+    pub(super) fn close_tabs_to_right(
+        &mut self,
+        ix: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let indices = (ix + 1..self.tabs.len()).collect();
+        self.close_tabs(indices, window, cx);
+    }
+
+    pub(super) fn close_tabs_with_deleted_files(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let indices = self
+            .tabs
+            .iter()
+            .enumerate()
+            .filter(|(_, tab)| tab.path.as_deref().is_some_and(|path| !path.exists()))
+            .map(|(ix, _)| ix)
+            .collect();
+        self.close_tabs(indices, window, cx);
+    }
+
+    pub(super) fn close_tabs(
+        &mut self,
+        indices: Vec<usize>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut ids: Vec<EntityId> = Vec::new();
+        let mut dirty = false;
+        for ix in indices {
+            if let Some(tab) = self.tabs.get(ix) {
+                ids.push(tab.editor.entity_id());
+                dirty |= tab.dirty;
+            }
+        }
+        if ids.is_empty() {
+            return;
+        }
+
+        if !dirty {
+            for id in ids {
+                self.remove_tab(id, window, cx);
+            }
+            return;
+        }
+
+        let entity = cx.entity();
+        window.open_alert_dialog(cx, move |alert, _window, _cx| {
+            let entity = entity.clone();
+            let ids = ids.clone();
+            alert
+                .confirm()
+                .title("Unsaved Changes")
+                .description("Some tabs have unsaved changes. Close them without saving?")
+                .ok_text("Close Without Saving")
+                .ok_variant(ButtonVariant::Danger)
+                .cancel_text("Keep Editing")
+                .on_ok(move |_, window, cx| {
+                    for id in ids.iter().copied() {
+                        entity.update(cx, |this, cx| this.remove_tab(id, window, cx));
+                    }
+                    true
+                })
+        });
+    }
+
+    pub(super) fn remove_tab(&mut self, id: EntityId, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(ix) = self
+            .tabs
+            .iter()
+            .position(|tab| tab.editor.entity_id() == id)
+        else {
+            return;
+        };
+
+        self.tabs.remove(ix);
+        self.active_tab = if self.tabs.is_empty() {
+            None
+        } else {
+            let active = self.active_tab.unwrap_or(0);
+            let active = if ix < active { active - 1 } else { active };
+            Some(active.min(self.tabs.len() - 1))
+        };
+
+        if let Some(tab) = self.active_tab.and_then(|ix| self.tabs.get(ix)) {
+            tab.editor.update(cx, |state, cx| state.focus(window, cx));
+        }
+        self.save_session();
+        cx.notify();
+    }
+
+    pub(super) fn set_dirty(&mut self, id: EntityId, dirty: bool, cx: &mut Context<Self>) {
+        if let Some(tab) = self
+            .tabs
+            .iter_mut()
+            .find(|tab| tab.editor.entity_id() == id)
+            && tab.dirty != dirty
+        {
+            tab.dirty = dirty;
+            cx.notify();
+        }
+    }
+
+    pub(super) fn sync_cursor(&mut self, id: EntityId, cx: &mut Context<Self>) {
+        let Some(ix) = self.active_tab else {
+            return;
+        };
+        let position = {
+            let Some(tab) = self.tabs.get(ix) else {
+                return;
+            };
+            if tab.editor.entity_id() != id {
+                return;
+            }
+            tab.editor.read(cx).cursor_position()
+        };
+
+        self.cursor_line = position.line as usize + 1;
+        self.cursor_col = position.character as usize + 1;
+        cx.notify();
+    }
+}

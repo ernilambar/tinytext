@@ -48,8 +48,11 @@ in headless environments.
   `.h_flex()` / `.v_flex()`, and `use gpui_kit::component::ActiveTheme as _;` for
   `cx.theme()`.
 - Never edit `Cargo.lock` by hand; regenerate it with a `cargo` command.
-- Keep application code in `src/main.rs`. Split a feature into its own module only once it
-  is large enough to justify the boundary.
+- Module layout: `main.rs` (entry, actions, keybindings), `app/` (`TinytextApp` state;
+  `files.rs`, `tabs.rs`, `ui.rs` hold further `impl TinytextApp` blocks), and GPUI-free
+  helpers in `cli.rs`, `language.rs`, `paths.rs`, `session.rs`. Code under `app/` reads
+  private fields directly; cross-file methods use `pub(super)`. Add a new module only once
+  a feature is large enough to justify the boundary.
 - This project targets macOS only. Do not add cross-platform code paths.
 
 ## Quality gate
