@@ -12,6 +12,18 @@ set -euo pipefail
 
 APP="${TINYTEXT_APP:-/Applications/Tinytext.app}"
 
+# Options are handled by the binary itself; `open` would treat them as files.
+for arg in "$@"; do
+    case "$arg" in
+        --) break ;;
+        -*) exec "$APP/Contents/MacOS/tinytext" "$@" ;;
+    esac
+done
+
+if [ "${1:-}" = "--" ]; then
+    shift
+fi
+
 if [ "$#" -eq 0 ]; then
     exec open -a "$APP"
 fi

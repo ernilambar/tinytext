@@ -11,7 +11,7 @@ use gpui_kit::component::{Theme, ThemeMode, input};
 use gpui_kit::*;
 
 use app::TinytextApp;
-use cli::print_help;
+use cli::{CliCommand, parse_args, print_help};
 use paths::path_from_file_url;
 use session::load_session;
 
@@ -35,14 +35,27 @@ gpui_kit::actions!(
 );
 
 fn main() {
-    if std::env::args().any(|arg| arg == "--help" || arg == "-h") {
-        print_help();
-        return;
-    }
-
-    if std::env::args().any(|arg| arg == "--version" || arg == "-V") {
-        println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
-        return;
+    match parse_args(std::env::args().skip(1)) {
+        CliCommand::Run => {}
+        CliCommand::Help => {
+            print_help();
+            return;
+        }
+        CliCommand::Version => {
+            println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+            return;
+        }
+        CliCommand::Unknown(arg) => {
+            eprintln!(
+                "{name}: unknown option '{arg}'",
+                name = env!("CARGO_PKG_NAME")
+            );
+            eprintln!(
+                "Run '{name} --help' for usage.",
+                name = env!("CARGO_PKG_NAME")
+            );
+            std::process::exit(2);
+        }
     }
 
     let (open_tx, open_rx) = async_channel::unbounded::<Vec<PathBuf>>();

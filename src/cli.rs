@@ -15,6 +15,18 @@ set -euo pipefail
 
 APP="${TINYTEXT_APP:-__BUNDLE__}"
 
+# Options are handled by the binary itself; `open` would treat them as files.
+for arg in "$@"; do
+    case "$arg" in
+        --) break ;;
+        -*) exec "$APP/Contents/MacOS/tinytext" "$@" ;;
+    esac
+done
+
+if [ "${1:-}" = "--" ]; then
+    shift
+fi
+
 if [ "$#" -eq 0 ]; then
     exec open -a "$APP"
 fi
@@ -60,6 +72,31 @@ pub(crate) fn install_cli(bundle: &Path) -> Result<PathBuf, String> {
     Ok(PathBuf::from(TARGET))
 }
 
+#[derive(Debug, PartialEq)]
+pub(crate) enum CliCommand {
+    Run,
+    Help,
+    Version,
+    Unknown(String),
+}
+
+/// Scans arguments (without the program name) for options. The first option
+/// wins; everything after `--` is treated as a path.
+pub(crate) fn parse_args(args: impl IntoIterator<Item = String>) -> CliCommand {
+    for arg in args {
+        match arg.as_str() {
+            "--" => break,
+            "-h" | "--help" => return CliCommand::Help,
+            "-V" | "--version" => return CliCommand::Version,
+            // Older macOS passes a process serial number when launched from Finder.
+            _ if arg.starts_with("-psn_") => {}
+            _ if arg.starts_with('-') => return CliCommand::Unknown(arg),
+            _ => {}
+        }
+    }
+    CliCommand::Run
+}
+
 pub(crate) fn print_help() {
     println!(
         "\
@@ -90,5 +127,24 @@ mod tests {
         assert!(script.starts_with("#!/usr/bin/env bash\n"));
         assert!(script.contains(r#"APP="${TINYTEXT_APP:-/Applications/Tinytext.app}""#));
         assert!(!script.contains("__BUNDLE__"));
+    }
+
+    fn parse(args: &[&str]) -> CliCommand {
+        parse_args(args.iter().map(|arg| arg.to_string()))
+    }
+
+    #[test]
+    fn parse_args_detects_options() {
+        assert_eq!(parse(&[]), CliCommand::Run);
+        assert_eq!(parse(&["notes"]), CliCommand::Run);
+        assert_eq!(parse(&["--help"]), CliCommand::Help);
+        assert_eq!(parse(&["-V"]), CliCommand::Version);
+        assert_eq!(parse(&["notes", "--version"]), CliCommand::Version);
+        assert_eq!(
+            parse(&["--versioin"]),
+            CliCommand::Unknown("--versioin".to_string())
+        );
+        assert_eq!(parse(&["--", "--version"]), CliCommand::Run);
+        assert_eq!(parse(&["-psn_0_12345"]), CliCommand::Run);
     }
 }
