@@ -260,7 +260,7 @@ impl TinytextApp {
                     } else {
                         this.expanded.insert(click_path.clone());
                     }
-                } else if event.click_count() >= 2 {
+                } else if event.click_count() == 1 {
                     this.request_open(click_path.clone(), window, cx);
                 }
                 this.save_session();
