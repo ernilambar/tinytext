@@ -45,7 +45,7 @@ xattr -dr com.apple.quarantine /Applications/Tinytext.app
 
 ## Update
 
-Choose **Help → Check for Updates…** to see if a new version is out. To update, save
+Choose **Tinytext → Check for Updates…** to see if a new version is out. To update, save
 your work and run the install command again. It replaces the existing app with the
 latest release.
 
@@ -66,7 +66,7 @@ Open a folder in the sidebar with **File → Open Folder…**.
 
 ### Open files from Terminal
 
-Choose **Help → Install "tinytext" Command in PATH** and enter your password when asked.
+Choose **Tinytext → Install Command Line Tool…** and enter your password when asked.
 Then:
 
 ```sh

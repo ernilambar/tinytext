@@ -7,7 +7,7 @@ mod update;
 
 use std::path::PathBuf;
 
-use gpui_kit::component::{Theme, ThemeMode};
+use gpui_kit::component::{Theme, ThemeMode, input};
 use gpui_kit::*;
 
 use app::TinytextApp;
@@ -25,12 +25,6 @@ gpui_kit::actions!(
         CloseTab,
         Quit,
         ToggleSidebar,
-        EditUndo,
-        EditRedo,
-        EditCut,
-        EditCopy,
-        EditPaste,
-        EditSelectAll,
         InstallCli,
         CheckForUpdates,
         About,
@@ -84,6 +78,7 @@ fn main() {
             KeyBinding::new("cmd-q", Quit, None),
             KeyBinding::new("cmd-b", ToggleSidebar, None),
         ]);
+        cx.set_menus(app_menus());
 
         let options = WindowOptions {
             titlebar: Some(TitlebarOptions {
@@ -119,4 +114,37 @@ fn main() {
         })
         .expect("failed to open window");
     });
+}
+
+fn app_menus() -> Vec<Menu> {
+    vec![
+        Menu::new("Tinytext").items([
+            MenuItem::action("About Tinytext", About),
+            MenuItem::action("Check for Updates…", CheckForUpdates),
+            MenuItem::separator(),
+            MenuItem::action("Install Command Line Tool…", InstallCli),
+            MenuItem::separator(),
+            MenuItem::action("Quit Tinytext", Quit),
+        ]),
+        Menu::new("File").items([
+            MenuItem::action("New File", NewFile),
+            MenuItem::action("Open…", OpenFile),
+            MenuItem::action("Open Folder…", OpenFolder),
+            MenuItem::separator(),
+            MenuItem::action("Save", SaveFile),
+            MenuItem::separator(),
+            MenuItem::action("Close Tab", CloseTab),
+        ]),
+        Menu::new("Edit").items([
+            MenuItem::os_action("Undo", input::Undo, OsAction::Undo),
+            MenuItem::os_action("Redo", input::Redo, OsAction::Redo),
+            MenuItem::separator(),
+            MenuItem::os_action("Cut", input::Cut, OsAction::Cut),
+            MenuItem::os_action("Copy", input::Copy, OsAction::Copy),
+            MenuItem::os_action("Paste", input::Paste, OsAction::Paste),
+            MenuItem::separator(),
+            MenuItem::os_action("Select All", input::SelectAll, OsAction::SelectAll),
+        ]),
+        Menu::new("View").items([MenuItem::action("Toggle Sidebar", ToggleSidebar)]),
+    ]
 }

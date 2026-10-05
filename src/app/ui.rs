@@ -16,99 +16,12 @@ use gpui_kit::*;
 
 use crate::language::{LANGUAGES, editor_language_id};
 use crate::paths::{file_name, read_dir};
-use crate::{
-    About, CheckForUpdates, CloseTab, EditCopy, EditCut, EditPaste, EditRedo, EditSelectAll,
-    EditUndo, InstallCli, NewFile, OpenFile, OpenFolder, Quit, SaveFile, ToggleSidebar,
-};
 
 use super::TinytextApp;
 
 const SIDEBAR_WIDTH: Pixels = px(240.);
 
 impl TinytextApp {
-    pub(super) fn render_menu_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let has_tabs = !self.tabs.is_empty();
-        let sidebar_visible = self.sidebar_visible;
-
-        div()
-            .h_flex()
-            .flex_none()
-            .h_9()
-            .px_2()
-            .gap_1()
-            .items_center()
-            .border_b_1()
-            .border_color(cx.theme().border)
-            .child(
-                Button::new("menu-file")
-                    .small()
-                    .compact()
-                    .ghost()
-                    .label("File")
-                    .dropdown_menu(move |menu, _, _| {
-                        menu.menu("New File", Box::new(NewFile))
-                            .menu("Open…", Box::new(OpenFile))
-                            .menu("Open Folder…", Box::new(OpenFolder))
-                            .separator()
-                            .menu("Save", Box::new(SaveFile))
-                            .separator()
-                            .menu_with_disabled("Close Tab", Box::new(CloseTab), !has_tabs)
-                            .separator()
-                            .menu("Quit", Box::new(Quit))
-                    }),
-            )
-            .child(
-                Button::new("menu-edit")
-                    .small()
-                    .compact()
-                    .ghost()
-                    .label("Edit")
-                    .dropdown_menu(|menu, _, _| {
-                        menu.menu_with_disabled("Undo", Box::new(EditUndo), true)
-                            .menu_with_disabled("Redo", Box::new(EditRedo), true)
-                            .separator()
-                            .menu_with_disabled("Cut", Box::new(EditCut), true)
-                            .menu_with_disabled("Copy", Box::new(EditCopy), true)
-                            .menu_with_disabled("Paste", Box::new(EditPaste), true)
-                            .separator()
-                            .menu_with_disabled("Select All", Box::new(EditSelectAll), true)
-                    }),
-            )
-            .child(
-                Button::new("menu-view")
-                    .small()
-                    .compact()
-                    .ghost()
-                    .label("View")
-                    .dropdown_menu(move |menu, _, _| {
-                        menu.menu_with_check("Sidebar", sidebar_visible, Box::new(ToggleSidebar))
-                    }),
-            )
-            .child(
-                Button::new("menu-help")
-                    .small()
-                    .compact()
-                    .ghost()
-                    .label("Help")
-                    .dropdown_menu(|menu, _, _| {
-                        menu.menu("Install \"tinytext\" Command in PATH", Box::new(InstallCli))
-                            .menu("Check for Updates…", Box::new(CheckForUpdates))
-                            .separator()
-                            .menu("About Tinytext", Box::new(About))
-                    }),
-            )
-            .child(div().flex_1())
-            .child(
-                Button::new("toggle-sidebar")
-                    .small()
-                    .compact()
-                    .ghost()
-                    .icon(IconName::PanelLeft)
-                    .tooltip("Toggle Sidebar")
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
-            )
-    }
-
     pub(super) fn render_tab_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = cx.entity();
         let active = self.active_tab;

@@ -322,7 +322,6 @@ impl Render for TinytextApp {
             .on_action(cx.listener(Self::on_install_cli))
             .on_action(cx.listener(Self::on_check_for_updates))
             .on_action(cx.listener(Self::on_about))
-            .child(self.render_menu_bar(cx))
             .child(self.render_tab_bar(cx))
             .child(self.render_workspace(cx))
             .child(self.render_status_bar(cx))
