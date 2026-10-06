@@ -4,10 +4,11 @@ mod ui;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use gpui_kit::base::StyledExt as _;
 use gpui_kit::component::{
-    ActiveTheme as _, WindowExt as _, input::EditorState, notification::Notification,
+    ActiveTheme as _, WindowExt as _, input::EditorState, link::Link, notification::Notification,
 };
 use gpui_kit::*;
 
@@ -378,21 +379,53 @@ impl TinytextApp {
     }
 
     fn on_about(&mut self, _: &About, window: &mut Window, cx: &mut Context<Self>) {
-        window.open_alert_dialog(cx, |alert, _, _| {
+        window.open_alert_dialog(cx, |alert, _, cx| {
             alert
-                .title("Tinytext")
                 .description(
                     div()
                         .v_flex()
-                        .gap_1()
+                        .w_full()
+                        .items_center()
+                        .gap_2()
+                        .child(about_icon())
+                        .child(
+                            div()
+                                .text_lg()
+                                .font_weight(FontWeight::BOLD)
+                                .text_color(cx.theme().foreground)
+                                .child("Tinytext"),
+                        )
                         .child(format!("Version {}", env!("CARGO_PKG_VERSION")))
                         .child("A native macOS text editor built with GPUI Kit.")
-                        .child(env!("CARGO_PKG_REPOSITORY"))
-                        .child(env!("CARGO_PKG_HOMEPAGE")),
+                        .child(
+                            div()
+                                .v_flex()
+                                .items_center()
+                                .gap_1()
+                                .child(
+                                    Link::new("about-repository")
+                                        .href(env!("CARGO_PKG_REPOSITORY"))
+                                        .child(env!("CARGO_PKG_REPOSITORY")),
+                                )
+                                .child(
+                                    Link::new("about-homepage")
+                                        .href(env!("CARGO_PKG_HOMEPAGE"))
+                                        .child(env!("CARGO_PKG_HOMEPAGE")),
+                                ),
+                        ),
                 )
                 .ok_text("Close")
         });
     }
+}
+
+fn about_icon() -> impl IntoElement {
+    img(Arc::new(Image::from_bytes(
+        ImageFormat::Png,
+        include_bytes!("../../assets/icon.png").to_vec(),
+    )))
+    .w(px(96.))
+    .h(px(96.))
 }
 
 impl Render for TinytextApp {

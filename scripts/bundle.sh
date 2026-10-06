@@ -16,7 +16,7 @@ if ! command -v cargo-bundle >/dev/null 2>&1; then
 fi
 
 if [ ! -f assets/icon.icns ]; then
-    echo "==> assets/icon.icns missing; generating a placeholder"
+    echo "==> assets/icon.icns missing; generating the app icon"
     python3 scripts/make-icon.py
 fi
 

@@ -58,7 +58,7 @@ This replaces `/Applications/Tinytext.app` and kills the running copy, so save y
 in it first.
 
 `./scripts/bundle.sh` builds a release bundle into `target/release/bundle/osx/` without
-installing it. Regenerate the placeholder icon with `python3 scripts/make-icon.py`.
+installing it. Regenerate the app icon with `python3 scripts/make-icon.py`.
 
 ### Code layout
 

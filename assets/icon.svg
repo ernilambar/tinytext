@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Tinytext">
+  <defs>
+    <linearGradient id="bgGradient" gradientUnits="userSpaceOnUse" x1="0" y1="64" x2="0" y2="960">
+      <stop offset="0" stop-color="#1E4882" />
+      <stop offset="1" stop-color="#1A3E70" />
+    </linearGradient>
+
+    <linearGradient id="tGradient" gradientUnits="userSpaceOnUse" x1="0" y1="225" x2="0" y2="825">
+      <stop offset="0" stop-color="#A0E0FF" />
+      <stop offset="1" stop-color="#60A0FF" />
+    </linearGradient>
+
+    <filter id="iconShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#102040" flood-opacity="0.38" />
+    </filter>
+  </defs>
+
+  <rect x="64" y="64" width="896" height="896" rx="200" ry="200" fill="url(#bgGradient)" filter="url(#iconShadow)" />
+
+  <g fill="url(#tGradient)">
+    <rect x="252" y="225" width="520" height="160" />
+    <rect x="252" y="199" width="72" height="212" />
+    <rect x="700" y="199" width="72" height="212" />
+    <rect x="412" y="225" width="200" height="600" />
+    <path d="M387 710 H637 V809 A16 16 0 0 1 621 825 H403 A16 16 0 0 1 387 809 Z" />
+  </g>
+</svg>
