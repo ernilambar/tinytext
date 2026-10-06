@@ -25,10 +25,22 @@ use super::TinytextApp;
 
 const SIDEBAR_WIDTH: Pixels = px(240.);
 
+/// A fixed-width slot holding the unsaved-changes dot. The slot is always laid
+/// out, so a dot appearing or clearing a tab's dirty state never reflows the
+/// title beside it.
+fn dirty_dot(dirty: bool, color: Hsla) -> Div {
+    div()
+        .size(px(6.))
+        .flex_none()
+        .rounded_full()
+        .when(dirty, |this| this.bg(color))
+}
+
 impl TinytextApp {
     pub(super) fn render_tab_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = cx.entity();
         let active = self.active_tab;
+        let dirty_color = cx.theme().foreground;
 
         let tabs: Vec<Tab> = self
             .tabs
@@ -38,6 +50,7 @@ impl TinytextApp {
                 let close_entity = entity.clone();
                 Tab::new()
                     .label(tab.title.clone())
+                    .prefix(dirty_dot(tab.dirty, dirty_color).ml_2())
                     .suffix(
                         Button::new(("close-tab", ix))
                             .xsmall()
@@ -209,6 +222,8 @@ impl TinytextApp {
             .get(side)
             .map(|tab| tab.title.clone())
             .unwrap_or_default();
+        let dirty = self.tabs.get(side).is_some_and(|tab| tab.dirty);
+        let dirty_color = cx.theme().foreground;
         let entity = cx.entity();
 
         div()
@@ -236,7 +251,15 @@ impl TinytextApp {
                     .gap_2()
                     .border_b_1()
                     .border_color(cx.theme().border)
-                    .child(div().flex_1().text_sm().child(title))
+                    .child(
+                        div()
+                            .h_flex()
+                            .flex_1()
+                            .items_center()
+                            .gap_1()
+                            .child(dirty_dot(dirty, dirty_color))
+                            .child(div().text_sm().child(title)),
+                    )
                     .child(
                         Button::new("close-side-pane")
                             .xsmall()
