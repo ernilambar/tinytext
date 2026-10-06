@@ -38,6 +38,7 @@ gpui_kit::actions!(
         OpenSettings,
         RevealInFinder,
         CopyFilePath,
+        CopyRelativePath,
     ]
 );
 

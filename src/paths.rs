@@ -80,6 +80,47 @@ pub(crate) fn hex_digit(byte: u8) -> Option<u8> {
     }
 }
 
+/// A single path component usable as a new file or folder name. Rejects the
+/// empty string, the dot entries, and anything containing a separator so the
+/// name cannot escape the directory it is created in.
+pub(crate) fn is_valid_entry_name(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && !name.contains('/') && !name.contains('\0')
+}
+
+/// Rewrites `path` when it is `from` or lives under it, mapping the prefix to
+/// `to`. Returns `None` for unrelated paths so callers can keep them as-is.
+pub(crate) fn remap_prefix(path: &Path, from: &Path, to: &Path) -> Option<PathBuf> {
+    if path == from {
+        return Some(to.to_path_buf());
+    }
+    path.strip_prefix(from).ok().map(|rest| to.join(rest))
+}
+
+/// Path shown relative to `root` when possible, otherwise absolute. Used by
+/// "Copy Relative Path".
+pub(crate) fn relative_display(path: &Path, root: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .display()
+        .to_string()
+}
+
+/// Copies a file, or a directory tree, to `to`. Directories are created and
+/// filled recursively.
+pub(crate) fn copy_entry(from: &Path, to: &Path) -> std::io::Result<()> {
+    let metadata = std::fs::symlink_metadata(from)?;
+    if metadata.is_dir() {
+        std::fs::create_dir_all(to)?;
+        for entry in std::fs::read_dir(from)? {
+            let entry = entry?;
+            copy_entry(&entry.path(), &to.join(entry.file_name()))?;
+        }
+    } else {
+        std::fs::copy(from, to)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,5 +181,70 @@ mod tests {
         assert_eq!(percent_decode("100%"), "100%");
         assert_eq!(percent_decode("%zz"), "%zz");
         assert_eq!(percent_decode("%2"), "%2");
+    }
+
+    #[test]
+    fn valid_entry_names_reject_separators_and_dots() {
+        assert!(is_valid_entry_name("main.rs"));
+        assert!(is_valid_entry_name("My Notes"));
+        assert!(!is_valid_entry_name(""));
+        assert!(!is_valid_entry_name("."));
+        assert!(!is_valid_entry_name(".."));
+        assert!(!is_valid_entry_name("a/b"));
+        assert!(!is_valid_entry_name("a\0b"));
+    }
+
+    #[test]
+    fn remap_prefix_maps_self_and_descendants_only() {
+        let from = Path::new("/tmp/project/src");
+        let to = Path::new("/tmp/project/lib");
+        assert_eq!(
+            remap_prefix(from, from, to),
+            Some(PathBuf::from("/tmp/project/lib"))
+        );
+        assert_eq!(
+            remap_prefix(Path::new("/tmp/project/src/main.rs"), from, to),
+            Some(PathBuf::from("/tmp/project/lib/main.rs"))
+        );
+        assert_eq!(
+            remap_prefix(Path::new("/tmp/project/other"), from, to),
+            None
+        );
+    }
+
+    #[test]
+    fn relative_display_strips_root_when_possible() {
+        assert_eq!(
+            relative_display(
+                Path::new("/tmp/project/src/main.rs"),
+                Path::new("/tmp/project")
+            ),
+            "src/main.rs"
+        );
+        assert_eq!(
+            relative_display(Path::new("/elsewhere/main.rs"), Path::new("/tmp/project")),
+            "/elsewhere/main.rs"
+        );
+    }
+
+    #[test]
+    fn copy_entry_duplicates_a_directory_tree() {
+        let root = std::env::temp_dir().join(format!("tinytext-copy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let from = root.join("from");
+        std::fs::create_dir_all(from.join("nested")).unwrap();
+        std::fs::write(from.join("a.txt"), "a").unwrap();
+        std::fs::write(from.join("nested/b.txt"), "b").unwrap();
+
+        let to = root.join("to");
+        copy_entry(&from, &to).unwrap();
+
+        assert_eq!(std::fs::read_to_string(to.join("a.txt")).unwrap(), "a");
+        assert_eq!(
+            std::fs::read_to_string(to.join("nested/b.txt")).unwrap(),
+            "b"
+        );
+
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }

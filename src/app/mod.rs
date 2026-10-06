@@ -19,8 +19,8 @@ use crate::settings::{
 };
 use crate::update::{INSTALL_COMMAND, is_newer, latest_version};
 use crate::{
-    About, CheckForUpdates, CopyFilePath, InstallCli, OpenSettings, Quit, RevealInFinder,
-    ToggleSidebar,
+    About, CheckForUpdates, CopyFilePath, CopyRelativePath, InstallCli, OpenSettings, Quit,
+    RevealInFinder, ToggleSidebar,
 };
 
 struct OpenTab {
@@ -32,6 +32,13 @@ struct OpenTab {
     _subscriptions: Vec<Subscription>,
 }
 
+/// A pending Cut/Copy of a single tree entry, applied on the next Paste.
+#[derive(Clone)]
+struct FileClipboard {
+    path: PathBuf,
+    cut: bool,
+}
+
 pub(crate) struct TinytextApp {
     pub(crate) focus_handle: FocusHandle,
     workspace_root: Option<PathBuf>,
@@ -39,7 +46,13 @@ pub(crate) struct TinytextApp {
     selected_path: Option<PathBuf>,
     tabs: Vec<OpenTab>,
     active_tab: Option<usize>,
+    /// The tab shown in the secondary editor pane, when one is open.
+    side_tab: Option<usize>,
+    /// Which pane owns the caret and therefore which tab Save and the status
+    /// bar act on.
+    focused_side: bool,
     context_tab: Option<usize>,
+    file_clipboard: Option<FileClipboard>,
     sidebar_visible: bool,
     cursor_line: usize,
     cursor_col: usize,
@@ -65,7 +78,10 @@ impl TinytextApp {
             selected_path: None,
             tabs: Vec::new(),
             active_tab: None,
+            side_tab: None,
+            focused_side: false,
             context_tab: None,
+            file_clipboard: None,
             sidebar_visible,
             cursor_line: 1,
             cursor_col: 1,
@@ -170,8 +186,18 @@ impl TinytextApp {
         }
     }
 
+    /// The tab index the user is currently working in: the secondary pane when
+    /// it holds focus, otherwise the primary one.
+    pub(super) fn focused_tab(&self) -> Option<usize> {
+        if self.focused_side {
+            self.side_tab.or(self.active_tab)
+        } else {
+            self.active_tab
+        }
+    }
+
     fn active(&self) -> Option<&OpenTab> {
-        self.active_tab.and_then(|ix| self.tabs.get(ix))
+        self.focused_tab().and_then(|ix| self.tabs.get(ix))
     }
 
     fn active_language(&self) -> SharedString {
@@ -203,8 +229,8 @@ impl TinytextApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(path) = self.active().and_then(|tab| tab.path.as_deref()) {
-            cx.reveal_path(path);
+        if let Some(path) = self.active().and_then(|tab| tab.path.clone()) {
+            self.reveal_in_finder(&path, cx);
         }
     }
 
@@ -214,9 +240,36 @@ impl TinytextApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(path) = self.active().and_then(|tab| tab.path.as_deref()) {
-            cx.write_to_clipboard(ClipboardItem::new_string(path.display().to_string()));
+        if let Some(path) = self.active().and_then(|tab| tab.path.clone()) {
+            self.copy_path_to_clipboard(&path, cx);
         }
+    }
+
+    pub(super) fn reveal_in_finder(&self, path: &Path, cx: &mut Context<Self>) {
+        cx.reveal_path(path);
+    }
+
+    fn on_copy_relative_path(
+        &mut self,
+        _: &CopyRelativePath,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(path) = self.active().and_then(|tab| tab.path.clone()) {
+            self.copy_relative_path(&path, cx);
+        }
+    }
+
+    pub(super) fn copy_path_to_clipboard(&self, path: &Path, cx: &mut Context<Self>) {
+        cx.write_to_clipboard(ClipboardItem::new_string(path.display().to_string()));
+    }
+
+    pub(super) fn copy_relative_path(&self, path: &Path, cx: &mut Context<Self>) {
+        let text = match &self.workspace_root {
+            Some(root) => crate::paths::relative_display(path, root),
+            None => path.display().to_string(),
+        };
+        cx.write_to_clipboard(ClipboardItem::new_string(text));
     }
 
     fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
@@ -476,6 +529,7 @@ impl Render for TinytextApp {
             .on_action(cx.listener(Self::on_open_settings))
             .on_action(cx.listener(Self::on_reveal_in_finder))
             .on_action(cx.listener(Self::on_copy_file_path))
+            .on_action(cx.listener(Self::on_copy_relative_path))
             .child(self.render_workspace(cx))
             .child(self.render_status_bar(cx))
     }

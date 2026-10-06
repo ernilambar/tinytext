@@ -19,7 +19,7 @@ use gpui_kit::*;
 use crate::file_icons::{file_icon, folder_icon};
 use crate::language::{LANGUAGES, editor_language_id};
 use crate::paths::{file_name, read_dir};
-use crate::{CopyFilePath, RevealInFinder};
+use crate::{CopyFilePath, CopyRelativePath, RevealInFinder};
 
 use super::TinytextApp;
 
@@ -153,16 +153,112 @@ impl TinytextApp {
     }
 
     pub(super) fn render_editor_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        match self.split_tab() {
+            Some(side) => h_resizable("editor-panes")
+                .child(
+                    resizable_panel().child(
+                        div()
+                            .v_flex()
+                            .size_full()
+                            .min_w_0()
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|this, _, _, cx| {
+                                    if this.focused_side {
+                                        this.focused_side = false;
+                                        cx.notify();
+                                    }
+                                }),
+                            )
+                            .child(self.render_tab_bar(cx))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .child(self.render_editor_for(self.active_tab, cx)),
+                            ),
+                    ),
+                )
+                .child(resizable_panel().child(self.render_side_pane(side, cx)))
+                .into_any_element(),
+            None => div()
+                .v_flex()
+                .size_full()
+                .min_w_0()
+                .child(self.render_tab_bar(cx))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .child(self.render_editor_for(self.active_tab, cx)),
+                )
+                .into_any_element(),
+        }
+    }
+
+    /// The secondary pane's tab, if a split is open. A split is only shown when
+    /// the two panes would render different editors.
+    fn split_tab(&self) -> Option<usize> {
+        let side = self.side_tab?;
+        (side < self.tabs.len() && Some(side) != self.active_tab).then_some(side)
+    }
+
+    fn render_side_pane(&self, side: usize, cx: &mut Context<Self>) -> impl IntoElement {
+        let title = self
+            .tabs
+            .get(side)
+            .map(|tab| tab.title.clone())
+            .unwrap_or_default();
+        let entity = cx.entity();
+
         div()
             .v_flex()
             .size_full()
             .min_w_0()
-            .child(self.render_tab_bar(cx))
-            .child(div().flex_1().min_h_0().child(self.render_editor(cx)))
+            .border_l_1()
+            .border_color(cx.theme().border)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    if !this.focused_side {
+                        this.focused_side = true;
+                        cx.notify();
+                    }
+                }),
+            )
+            .child(
+                div()
+                    .h_flex()
+                    .flex_none()
+                    .h_9()
+                    .px_2()
+                    .items_center()
+                    .gap_2()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .child(div().flex_1().text_sm().child(title))
+                    .child(
+                        Button::new("close-side-pane")
+                            .xsmall()
+                            .ghost()
+                            .icon(IconName::Close)
+                            .on_click(move |_, window, cx| {
+                                entity.update(cx, |this, cx| this.close_side(window, cx));
+                            }),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .child(self.render_editor_for(Some(side), cx)),
+            )
     }
 
     pub(super) fn render_sidebar(&self, root: &Path, cx: &mut Context<Self>) -> impl IntoElement {
         let rows = self.tree_rows(root, 0, cx);
+        let header_entity = cx.entity();
+        let root_path = root.to_path_buf();
 
         div()
             .v_flex()
@@ -170,6 +266,7 @@ impl TinytextApp {
             .bg(cx.theme().background)
             .child(
                 div()
+                    .id("sidebar-header")
                     .h_flex()
                     .flex_none()
                     .h_9()
@@ -179,7 +276,72 @@ impl TinytextApp {
                     .border_b_1()
                     .border_color(cx.theme().border)
                     .child(Icon::new(IconName::FolderOpen).with_size(Size::Small))
-                    .child(div().text_sm().font_semibold().child(file_name(root))),
+                    .child(div().text_sm().font_semibold().child(file_name(root)))
+                    .context_menu(move |menu, _, cx| {
+                        let can_paste = header_entity.read(cx).file_clipboard.is_some();
+                        let target = root_path.clone();
+
+                        let new_file_entity = header_entity.clone();
+                        let new_file_dir = target.clone();
+                        let new_folder_entity = header_entity.clone();
+                        let new_folder_dir = target.clone();
+                        let paste_entity = header_entity.clone();
+                        let paste_dir = target.clone();
+                        let path_entity = header_entity.clone();
+                        let path_value = target.clone();
+                        let relative_entity = header_entity.clone();
+                        let relative_value = target.clone();
+                        let reveal_entity = header_entity.clone();
+                        let reveal_path = target;
+
+                        menu.item(
+                            PopupMenuItem::new("New File…").on_click(move |_, window, cx| {
+                                new_file_entity.update(cx, |this, cx| {
+                                    this.create_entry(new_file_dir.clone(), false, window, cx)
+                                });
+                            }),
+                        )
+                        .item(
+                            PopupMenuItem::new("New Folder…").on_click(move |_, window, cx| {
+                                new_folder_entity.update(cx, |this, cx| {
+                                    this.create_entry(new_folder_dir.clone(), true, window, cx)
+                                });
+                            }),
+                        )
+                        .separator()
+                        .item(PopupMenuItem::new("Paste").disabled(!can_paste).on_click(
+                            move |_, window, cx| {
+                                paste_entity.update(cx, |this, cx| {
+                                    this.paste_clipboard(paste_dir.clone(), window, cx)
+                                });
+                            },
+                        ))
+                        .separator()
+                        .item(
+                            PopupMenuItem::new("Copy Path").on_click(move |_, _window, cx| {
+                                path_entity.update(cx, |this, cx| {
+                                    this.copy_path_to_clipboard(&path_value, cx)
+                                });
+                            }),
+                        )
+                        .item(PopupMenuItem::new("Copy Relative Path").on_click(
+                            move |_, _window, cx| {
+                                relative_entity.update(cx, |this, cx| {
+                                    this.copy_relative_path(&relative_value, cx)
+                                });
+                            },
+                        ))
+                        .separator()
+                        .item(
+                            PopupMenuItem::new("Reveal in Finder").on_click(
+                                move |_, _window, cx| {
+                                    reveal_entity.update(cx, |this, cx| {
+                                        this.reveal_in_finder(&reveal_path, cx)
+                                    });
+                                },
+                            ),
+                        )
+                    }),
             )
             .child(
                 div()
@@ -244,6 +406,8 @@ impl TinytextApp {
 
         let click_path = path.to_path_buf();
         let label = file_name(path);
+        let menu_entity = cx.entity();
+        let menu_path = path.to_path_buf();
 
         ListItem::new(path.display().to_string())
             .pl(px(8. + depth as f32 * 12.))
@@ -274,11 +438,133 @@ impl TinytextApp {
                 this.save_session();
                 cx.notify();
             }))
+            .context_menu(move |menu, _, cx| {
+                let paste_dir = if is_dir {
+                    menu_path.clone()
+                } else {
+                    menu_path
+                        .parent()
+                        .map(Path::to_path_buf)
+                        .unwrap_or_default()
+                };
+                let can_paste = menu_entity.read(cx).file_clipboard.is_some();
+
+                let menu = if is_dir {
+                    let new_file_entity = menu_entity.clone();
+                    let new_file_dir = menu_path.clone();
+                    let new_folder_entity = menu_entity.clone();
+                    let new_folder_dir = menu_path.clone();
+                    menu.item(
+                        PopupMenuItem::new("New File…").on_click(move |_, window, cx| {
+                            new_file_entity.update(cx, |this, cx| {
+                                this.create_entry(new_file_dir.clone(), false, window, cx)
+                            });
+                        }),
+                    )
+                    .item(
+                        PopupMenuItem::new("New Folder…").on_click(move |_, window, cx| {
+                            new_folder_entity.update(cx, |this, cx| {
+                                this.create_entry(new_folder_dir.clone(), true, window, cx)
+                            });
+                        }),
+                    )
+                    .separator()
+                } else {
+                    let open_entity = menu_entity.clone();
+                    let open_path = menu_path.clone();
+                    let side_entity = menu_entity.clone();
+                    let side_path = menu_path.clone();
+                    menu.item(PopupMenuItem::new("Open").on_click(move |_, window, cx| {
+                        open_entity.update(cx, |this, cx| {
+                            this.request_open(open_path.clone(), window, cx)
+                        });
+                    }))
+                    .item(
+                        PopupMenuItem::new("Open to the Side").on_click(move |_, window, cx| {
+                            side_entity.update(cx, |this, cx| {
+                                this.open_path_to_side(side_path.clone(), window, cx)
+                            });
+                        }),
+                    )
+                    .separator()
+                };
+
+                let reveal_entity = menu_entity.clone();
+                let reveal_path = menu_path.clone();
+                let cut_entity = menu_entity.clone();
+                let cut_path = menu_path.clone();
+                let copy_entity = menu_entity.clone();
+                let copy_path = menu_path.clone();
+                let paste_entity = menu_entity.clone();
+                let path_entity = menu_entity.clone();
+                let path_value = menu_path.clone();
+                let relative_entity = menu_entity.clone();
+                let relative_value = menu_path.clone();
+                let rename_entity = menu_entity.clone();
+                let rename_path = menu_path.clone();
+                let delete_entity = menu_entity.clone();
+                let delete_path = menu_path.clone();
+
+                menu.item(
+                    PopupMenuItem::new("Reveal in Finder").on_click(move |_, _window, cx| {
+                        reveal_entity
+                            .update(cx, |this, cx| this.reveal_in_finder(&reveal_path, cx));
+                    }),
+                )
+                .separator()
+                .item(PopupMenuItem::new("Cut").on_click(move |_, _window, cx| {
+                    cut_entity.update(cx, |this, cx| {
+                        this.set_file_clipboard(cut_path.clone(), true, cx)
+                    });
+                }))
+                .item(PopupMenuItem::new("Copy").on_click(move |_, _window, cx| {
+                    copy_entity.update(cx, |this, cx| {
+                        this.set_file_clipboard(copy_path.clone(), false, cx)
+                    });
+                }))
+                .item(PopupMenuItem::new("Paste").disabled(!can_paste).on_click(
+                    move |_, window, cx| {
+                        paste_entity.update(cx, |this, cx| {
+                            this.paste_clipboard(paste_dir.clone(), window, cx)
+                        });
+                    },
+                ))
+                .separator()
+                .item(
+                    PopupMenuItem::new("Copy Path").on_click(move |_, _window, cx| {
+                        path_entity
+                            .update(cx, |this, cx| this.copy_path_to_clipboard(&path_value, cx));
+                    }),
+                )
+                .item(
+                    PopupMenuItem::new("Copy Relative Path").on_click(move |_, _window, cx| {
+                        relative_entity
+                            .update(cx, |this, cx| this.copy_relative_path(&relative_value, cx));
+                    }),
+                )
+                .separator()
+                .item(
+                    PopupMenuItem::new("Rename…").on_click(move |_, window, cx| {
+                        rename_entity.update(cx, |this, cx| {
+                            this.rename_entry(rename_path.clone(), window, cx)
+                        });
+                    }),
+                )
+                .item(PopupMenuItem::new("Delete").on_click(move |_, window, cx| {
+                    delete_entity.update(cx, |this, cx| {
+                        this.delete_entry(delete_path.clone(), window, cx)
+                    });
+                }))
+            })
             .into_any_element()
     }
 
-    pub(super) fn render_editor(&self, cx: &mut Context<Self>) -> AnyElement {
-        match self.active() {
+    pub(super) fn render_editor_for(
+        &self,
+        ix: Option<usize>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        match ix.and_then(|ix| self.tabs.get(ix)) {
             Some(tab) => {
                 let has_path = tab.path.is_some();
                 div()
@@ -313,9 +599,14 @@ impl TinytextApp {
                                         Box::new(RevealInFinder),
                                     )
                                     .menu_with_disabled(
-                                        "Copy File Path",
+                                        "Copy Path",
                                         !has_path,
                                         Box::new(CopyFilePath),
+                                    )
+                                    .menu_with_disabled(
+                                        "Copy Relative Path",
+                                        !has_path,
+                                        Box::new(CopyRelativePath),
                                     )
                             })
                             .h_full(),
