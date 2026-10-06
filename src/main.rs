@@ -81,6 +81,14 @@ fn main() {
     application.run(move |cx| {
         gpui_kit::init(cx);
         Theme::change(ThemeMode::Dark, None, cx);
+        // Lift the tab strip and mute inactive labels so the active tab, which
+        // merges with the editor background, is the only bright thing on the bar.
+        Theme::update(cx, |theme| {
+            theme.tab_bar = theme.secondary;
+            theme.tab_foreground = theme.muted_foreground;
+            theme.tab_active = theme.background;
+            theme.tab_active_foreground = theme.foreground;
+        });
 
         let settings = load_settings();
         let base_weight = settings
