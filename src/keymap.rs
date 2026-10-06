@@ -61,6 +61,13 @@ fn app_bindings() -> Vec<KeyBinding> {
 }
 
 /// VS Code's macOS editing chords, scoped to the focused editor.
+///
+/// Because these are registered after the engine's own `"Input"` bindings, two
+/// of them deliberately shadow engine defaults:
+/// - `shift-alt-up` / `shift-alt-down` — VS Code copies the line, replacing the
+///   engine's alternate add-cursor chord (`cmd-alt-up`/`down` still adds one).
+/// - `cmd-enter` — VS Code inserts a line below; the engine maps
+///   `secondary-enter` to a plain newline on macOS, so this is the useful one.
 fn editor_bindings() -> Vec<KeyBinding> {
     vec![
         KeyBinding::new("cmd-/", ToggleLineComment, Some(EDITOR)),
@@ -75,4 +82,68 @@ fn editor_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-g", GoToLine, Some(EDITOR)),
         KeyBinding::new("alt-z", ToggleWordWrap, Some(EDITOR)),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    // Explicit imports: `use super::*` would pull in gpui-kit's `test` attribute
+    // macro and shadow the built-in one.
+    use super::{app_bindings, editor_bindings};
+    use crate::{MoveLineDown, MoveLineUp};
+    use gpui_kit::{KeyBinding, KeyContext, Keymap, Keystroke};
+
+    /// Action names that would win for `keys` typed in `contexts`, best first.
+    fn resolve(keymap: &Keymap, keys: &str, contexts: &[&str]) -> Vec<String> {
+        let input: Vec<Keystroke> = keys
+            .split_whitespace()
+            .map(|key| Keystroke::parse(key).unwrap())
+            .collect();
+        let stack: Vec<KeyContext> = contexts
+            .iter()
+            .map(|context| KeyContext::parse(context).unwrap())
+            .collect();
+        keymap
+            .bindings_for_input(&input, &stack)
+            .0
+            .iter()
+            .map(|binding| binding.action().name().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn every_binding_parses() {
+        // `KeyBinding::new` panics on an invalid keystroke, so building the
+        // lists is itself the assertion that every chord is well-formed.
+        assert_eq!(app_bindings().len(), 28);
+        assert_eq!(editor_bindings().len(), 11);
+    }
+
+    #[test]
+    fn app_bindings_are_global_but_editor_bindings_are_not() {
+        let mut keymap = Keymap::default();
+        keymap.add_bindings(app_bindings());
+        keymap.add_bindings(editor_bindings());
+
+        assert!(resolve(&keymap, "cmd-n", &[])[0].ends_with("NewFile"));
+        assert!(resolve(&keymap, "cmd-/", &[]).is_empty());
+        assert!(resolve(&keymap, "cmd-/", &["Input"])[0].ends_with("ToggleLineComment"));
+    }
+
+    #[test]
+    fn editor_bindings_win_over_earlier_engine_defaults() {
+        // Emulate the engine registering its defaults first (as gpui_kit::init
+        // does), then this app's bindings afterwards. At equal context depth the
+        // later registration must win.
+        let mut keymap = Keymap::default();
+        keymap.add_bindings([
+            KeyBinding::new("shift-alt-up", MoveLineUp, Some("Input")),
+            KeyBinding::new("shift-alt-down", MoveLineDown, Some("Input")),
+            KeyBinding::new("secondary-enter", MoveLineUp, Some("Input")),
+        ]);
+        keymap.add_bindings(editor_bindings());
+
+        assert!(resolve(&keymap, "shift-alt-up", &["Input"])[0].ends_with("CopyLineUp"));
+        assert!(resolve(&keymap, "shift-alt-down", &["Input"])[0].ends_with("CopyLineDown"));
+        assert!(resolve(&keymap, "cmd-enter", &["Input"])[0].ends_with("InsertLineBelow"));
+    }
 }
