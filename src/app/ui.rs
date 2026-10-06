@@ -25,15 +25,14 @@ use super::TinytextApp;
 
 const SIDEBAR_WIDTH: Pixels = px(240.);
 
-/// A fixed-width slot holding the unsaved-changes dot. The slot is always laid
-/// out, so a dot appearing or clearing a tab's dirty state never reflows the
-/// title beside it.
-fn dirty_dot(dirty: bool, color: Hsla) -> Div {
+/// A fixed-width slot holding a tab's status dot. The slot is always laid out,
+/// so a dot appearing or clearing never reflows the title beside it.
+fn status_dot(visible: bool, color: Hsla) -> Div {
     div()
         .size(px(6.))
         .flex_none()
         .rounded_full()
-        .when(dirty, |this| this.bg(color))
+        .when(visible, |this| this.bg(color))
 }
 
 impl TinytextApp {
@@ -41,6 +40,7 @@ impl TinytextApp {
         let entity = cx.entity();
         let active = self.active_tab;
         let dirty_color = cx.theme().foreground;
+        let deleted_color = cx.theme().red;
 
         let tabs: Vec<Tab> = self
             .tabs
@@ -48,9 +48,15 @@ impl TinytextApp {
             .enumerate()
             .map(|(ix, tab)| {
                 let close_entity = entity.clone();
+                let deleted = tab.path.as_deref().is_some_and(|path| !path.exists());
+                let (dot, dot_color) = if deleted {
+                    (true, deleted_color)
+                } else {
+                    (tab.dirty, dirty_color)
+                };
                 Tab::new()
                     .label(tab.title.clone())
-                    .prefix(dirty_dot(tab.dirty, dirty_color).ml_2())
+                    .prefix(status_dot(dot, dot_color).ml_2())
                     .suffix(
                         Button::new(("close-tab", ix))
                             .xsmall()
@@ -223,7 +229,16 @@ impl TinytextApp {
             .map(|tab| tab.title.clone())
             .unwrap_or_default();
         let dirty = self.tabs.get(side).is_some_and(|tab| tab.dirty);
-        let dirty_color = cx.theme().foreground;
+        let deleted = self
+            .tabs
+            .get(side)
+            .and_then(|tab| tab.path.as_deref())
+            .is_some_and(|path| !path.exists());
+        let (dot, dot_color) = if deleted {
+            (true, cx.theme().red)
+        } else {
+            (dirty, cx.theme().foreground)
+        };
         let entity = cx.entity();
 
         div()
@@ -257,7 +272,7 @@ impl TinytextApp {
                             .flex_1()
                             .items_center()
                             .gap_1()
-                            .child(dirty_dot(dirty, dirty_color))
+                            .child(status_dot(dot, dot_color))
                             .child(div().text_sm().child(title)),
                     )
                     .child(

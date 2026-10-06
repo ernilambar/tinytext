@@ -149,6 +149,12 @@ fn main() {
                 app.update(cx, |this, cx| this.restore_session(session, window, cx));
             }
             app.update(cx, |this, cx| this.check_font_family(window, cx));
+            // Re-render whenever the window is (de)activated so a file deleted
+            // while the app was in the background is reflected in its tab.
+            app.update(cx, |_this, cx| {
+                cx.observe_window_activation(window, |_this, _window, cx| cx.notify())
+                    .detach();
+            });
             let focus_handle = app.read(cx).focus_handle.clone();
             focus_handle.focus(window, cx);
 

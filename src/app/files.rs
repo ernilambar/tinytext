@@ -193,8 +193,6 @@ impl TinytextApp {
             this.update_in(cx, |this, window, cx| match result {
                 Ok(()) => {
                     this.finish_save(id, path.clone(), cx);
-                    window
-                        .push_notification(Notification::success(format!("Saved {filename}")), cx);
                     this.reload_settings_if(&path, window, cx);
                 }
                 Err(error) => {
