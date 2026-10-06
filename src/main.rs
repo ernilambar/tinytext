@@ -222,7 +222,13 @@ fn app_menus() -> Vec<Menu> {
             MenuItem::os_action("Copy", input::Copy, OsAction::Copy),
             MenuItem::os_action("Paste", input::Paste, OsAction::Paste),
             MenuItem::separator(),
+            MenuItem::action("Find…", input::Search),
+            MenuItem::action("Find and Replace…", input::Replace),
+            MenuItem::separator(),
             MenuItem::os_action("Select All", input::SelectAll, OsAction::SelectAll),
+            MenuItem::separator(),
+            MenuItem::action("Indent", input::Indent),
+            MenuItem::action("Outdent", input::Outdent),
         ]),
         Menu::new("View").items([MenuItem::action("Toggle Sidebar", ToggleSidebar)]),
     ]
