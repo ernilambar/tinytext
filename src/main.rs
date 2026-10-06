@@ -2,6 +2,7 @@ mod app;
 mod cli;
 mod file_icons;
 mod language;
+mod markdown;
 mod paths;
 mod session;
 mod settings;
@@ -16,7 +17,7 @@ use app::TinytextApp;
 use cli::{CliCommand, parse_args, print_help};
 use paths::path_from_file_url;
 use session::load_session;
-use settings::load_settings;
+use settings::{DEFAULT_FONT_WEIGHT, load_settings};
 
 gpui_kit::actions!(
     tinytext,
@@ -79,12 +80,18 @@ fn main() {
         gpui_kit::init(cx);
         Theme::change(ThemeMode::Dark, None, cx);
 
+        let settings = load_settings();
+        let base_weight = settings
+            .as_ref()
+            .map(|settings| settings.editor.font_weight().unwrap_or(DEFAULT_FONT_WEIGHT))
+            .unwrap_or(DEFAULT_FONT_WEIGHT);
+        markdown::apply_emphasis(cx, base_weight);
+
         let argument = std::env::args().nth(1);
         let initial_folder = argument
             .as_ref()
             .map(PathBuf::from)
             .filter(|path| path.is_dir());
-        let settings = load_settings();
         let session = if argument.is_none() {
             load_session()
         } else {

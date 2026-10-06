@@ -341,6 +341,12 @@ impl TinytextApp {
         match load_settings() {
             Ok(settings) => {
                 self.settings = settings;
+                let base_weight = self
+                    .settings
+                    .editor
+                    .font_weight()
+                    .unwrap_or(DEFAULT_FONT_WEIGHT);
+                crate::markdown::apply_emphasis(cx, base_weight);
                 self.check_font_family(window, cx);
                 cx.notify();
             }
