@@ -22,13 +22,23 @@ A fast, lightweight text editor for macOS.
 
 ## Install
 
-Run this in Terminal:
+Install with [Homebrew](https://brew.sh):
+
+```sh
+brew tap ernilambar/tap
+brew trust ernilambar/tap
+brew install --cask ernilambar/tap/tinytext
+```
+
+This installs Tinytext into `/Applications`.
+
+### Install script
+
+Without Homebrew, run this in Terminal:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ernilambar/tinytext/main/scripts/install.sh | sh
 ```
-
-This installs Tinytext into `/Applications`.
 
 ### Manual download
 
@@ -46,8 +56,14 @@ xattr -dr com.apple.quarantine /Applications/Tinytext.app
 ## Update
 
 Choose **Tinytext → Check for Updates…** to see if a new version is out. To update, save
-your work and run the install command again. It replaces the existing app with the
-latest release.
+your work and run:
+
+```sh
+brew upgrade --cask tinytext
+```
+
+If you used the install script, run it again instead. It replaces the existing app with
+the latest release.
 
 ## Usage
 
@@ -73,19 +89,26 @@ Then:
 ```sh
 tinytext notes.txt
 tinytext one.txt two.txt
+tinytext .
 ```
 
-Files open as tabs in the running window.
-
 ## Uninstall
+
+```sh
+brew uninstall --cask --zap tinytext
+sudo rm -f /usr/local/bin/tinytext
+```
+
+`--zap` also removes your saved session and settings. The second line removes the
+command line tool, if you installed it.
+
+Without Homebrew:
 
 ```sh
 rm -rf /Applications/Tinytext.app
 sudo rm -f /usr/local/bin/tinytext
 rm -rf ~/Library/Application\ Support/net.nilambar.tinytext
 ```
-
-The last line removes your saved session (open tabs and folder).
 
 ## Contributing
 
