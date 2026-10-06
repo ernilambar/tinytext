@@ -19,6 +19,20 @@ pub(crate) fn file_name(path: &Path) -> String {
         .unwrap_or_else(|| path.display().to_string())
 }
 
+/// The path for display, with the home directory shortened to `~`.
+pub(crate) fn display_path(path: &Path) -> String {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    abbreviate_home(path, home.as_deref())
+}
+
+fn abbreviate_home(path: &Path, home: Option<&Path>) -> String {
+    match home.and_then(|home| path.strip_prefix(home).ok()) {
+        Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+        Some(rest) => format!("~/{}", rest.display()),
+        None => path.display().to_string(),
+    }
+}
+
 pub(crate) fn read_dir(dir: &Path) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
@@ -162,6 +176,21 @@ mod tests {
     fn file_name_returns_last_component() {
         assert_eq!(file_name(Path::new("/tmp/project/main.rs")), "main.rs");
         assert_eq!(file_name(Path::new("/")), "/");
+    }
+
+    #[test]
+    fn abbreviate_home_replaces_home_prefix() {
+        let home = Some(Path::new("/Users/me"));
+        assert_eq!(
+            abbreviate_home(Path::new("/Users/me/notes/a.txt"), home),
+            "~/notes/a.txt"
+        );
+        assert_eq!(abbreviate_home(Path::new("/Users/me"), home), "~");
+        assert_eq!(
+            abbreviate_home(Path::new("/Users/me2/a.txt"), home),
+            "/Users/me2/a.txt"
+        );
+        assert_eq!(abbreviate_home(Path::new("/tmp/a.txt"), None), "/tmp/a.txt");
     }
 
     #[test]

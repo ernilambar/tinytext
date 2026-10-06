@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::time::Duration;
 
 use gpui_kit::base::{InteractiveElementExt as _, StyledExt as _};
 use gpui_kit::component::{
@@ -11,28 +12,29 @@ use gpui_kit::component::{
     resizable::{h_resizable, resizable_panel},
     scroll::ScrollableElement as _,
     status_bar::StatusBar,
+    tooltip::Tooltip,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::file_icons::{file_icon, folder_icon};
 use crate::language::{LANGUAGES, editor_language_id};
-use crate::paths::{file_name, read_dir};
+use crate::paths::{display_path, file_name, read_dir};
 use crate::{CopyFilePath, CopyRelativePath, OpenFolder, RevealInFinder};
 
 use super::TinytextApp;
 
 const SIDEBAR_WIDTH: Pixels = px(240.);
-/// Bounds on a tab's width. Tabs share the strip equally and shrink together as
-/// more open, giving way no further than `TAB_MIN_WIDTH`; past that the strip
-/// scrolls horizontally instead of squeezing labels into nothing.
-const TAB_MIN_WIDTH: Pixels = px(100.);
+/// Cap on a tab's width. Tabs size to their titles, long ones truncating at
+/// this cap; once they overflow the strip, it scrolls horizontally.
 const TAB_MAX_WIDTH: Pixels = px(200.);
 
 const TAB_HEIGHT: Pixels = px(32.);
 const TAB_FONT_SIZE: Pixels = px(12.);
 /// Thickness of the accent line along the active tab's top edge.
 const TAB_ACCENT_HEIGHT: Pixels = px(2.);
+/// Hover time before a tab's path tooltip appears; GPUI's default is 500ms.
+const TAB_TOOLTIP_DELAY: Duration = Duration::from_millis(800);
 
 /// Group name shared by every tab, so its close button can react to hover.
 const TAB_GROUP: &str = "tab";
@@ -78,6 +80,11 @@ impl TinytextApp {
                 let close_entity = entity.clone();
                 let selected = active == Some(ix);
                 let deleted = tab.path.as_deref().is_some_and(|path| !path.exists());
+                // Full path on hover, telling apart titles the ellipsis cuts alike.
+                let tooltip: SharedString = match &tab.path {
+                    Some(path) => display_path(path).into(),
+                    None => tab.title.clone(),
+                };
                 let (dot, dot_color) = if deleted {
                     (true, deleted_color)
                 } else {
@@ -88,11 +95,7 @@ impl TinytextApp {
                     .group(TAB_GROUP)
                     .relative()
                     .h_flex()
-                    // Grow into an equal share of the strip (basis 0 ignores the
-                    // title's natural size), so tabs shrink in step as more open.
-                    // `min_w` floors that share; past it the strip scrolls.
-                    .flex_1()
-                    .min_w(TAB_MIN_WIDTH)
+                    .flex_none()
                     .max_w(TAB_MAX_WIDTH)
                     .h(TAB_HEIGHT)
                     .pl_3()
@@ -121,7 +124,6 @@ impl TinytextApp {
                     })
                     .child(
                         div()
-                            .flex_1()
                             .min_w_0()
                             .overflow_hidden()
                             .whitespace_nowrap()
@@ -151,6 +153,8 @@ impl TinytextApp {
                             )
                             .child(status_dot(dot, dot_color)),
                     )
+                    .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+                    .tooltip_show_delay(TAB_TOOLTIP_DELAY)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.activate_tab(ix, window, cx);
                     }))
