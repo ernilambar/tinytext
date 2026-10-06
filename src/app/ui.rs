@@ -316,7 +316,9 @@ impl TinytextApp {
             .v_flex()
             .size_full()
             .min_w_0()
-            .child(self.render_tab_bar(cx))
+            .when(!self.tabs.is_empty(), |this| {
+                this.child(self.render_tab_bar(cx))
+            })
             .child(
                 div()
                     .flex_1()
