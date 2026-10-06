@@ -292,6 +292,9 @@ impl TinytextApp {
                         .when_some(self.settings.editor.font_size(), |editor, size| {
                             editor.text_size(px(size))
                         })
+                        .when_some(self.settings.editor.font_weight(), |editor, weight| {
+                            editor.font_weight(FontWeight::from(weight))
+                        })
                         .h_full(),
                 )
                 .into_any_element(),

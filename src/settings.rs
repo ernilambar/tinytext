@@ -6,6 +6,9 @@ use crate::paths::support_dir;
 
 pub(crate) const MIN_FONT_SIZE: f32 = 6.;
 pub(crate) const MAX_FONT_SIZE: f32 = 72.;
+pub(crate) const MIN_FONT_WEIGHT: f32 = 100.;
+pub(crate) const MAX_FONT_WEIGHT: f32 = 900.;
+pub(crate) const DEFAULT_FONT_WEIGHT: f32 = 400.;
 
 /// Suggested when the configured family has no close match; only installed
 /// ones are shown.
@@ -40,12 +43,18 @@ pub(crate) struct Settings {
 pub(crate) struct EditorSettings {
     pub(crate) font_family: Option<String>,
     pub(crate) font_size: Option<f32>,
+    pub(crate) font_weight: Option<f32>,
 }
 
 impl EditorSettings {
     pub(crate) fn font_size(&self) -> Option<f32> {
         self.font_size
             .map(|size| size.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE))
+    }
+
+    pub(crate) fn font_weight(&self) -> Option<f32> {
+        self.font_weight
+            .map(|weight| weight.clamp(MIN_FONT_WEIGHT, MAX_FONT_WEIGHT))
     }
 }
 
@@ -124,11 +133,14 @@ mod tests {
 
     #[test]
     fn parses_editor_section() {
-        let settings =
-            parse_settings(r#"{"editor": {"font_family": "Menlo", "font_size": 15}}"#).unwrap();
+        let settings = parse_settings(
+            r#"{"editor": {"font_family": "Menlo", "font_size": 15, "font_weight": 600}}"#,
+        )
+        .unwrap();
 
         assert_eq!(settings.editor.font_family.as_deref(), Some("Menlo"));
         assert_eq!(settings.editor.font_size(), Some(15.));
+        assert_eq!(settings.editor.font_weight(), Some(600.));
     }
 
     #[test]
@@ -161,6 +173,15 @@ mod tests {
 
         let settings = parse_settings(r#"{"editor": {"font_size": 0}}"#).unwrap();
         assert_eq!(settings.editor.font_size(), Some(MIN_FONT_SIZE));
+    }
+
+    #[test]
+    fn clamps_font_weight() {
+        let settings = parse_settings(r#"{"editor": {"font_weight": 1000}}"#).unwrap();
+        assert_eq!(settings.editor.font_weight(), Some(MAX_FONT_WEIGHT));
+
+        let settings = parse_settings(r#"{"editor": {"font_weight": 50}}"#).unwrap();
+        assert_eq!(settings.editor.font_weight(), Some(MIN_FONT_WEIGHT));
     }
 
     fn installed(names: &[&str]) -> Vec<String> {

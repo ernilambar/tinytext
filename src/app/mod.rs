@@ -13,7 +13,9 @@ use gpui_kit::*;
 
 use crate::cli::{app_bundle_path, install_cli};
 use crate::session::{SessionState, session_path};
-use crate::settings::{EditorSettings, Settings, font_family_issue, load_settings, settings_path};
+use crate::settings::{
+    DEFAULT_FONT_WEIGHT, EditorSettings, Settings, font_family_issue, load_settings, settings_path,
+};
 use crate::update::{INSTALL_COMMAND, is_newer, latest_version};
 use crate::{About, CheckForUpdates, InstallCli, OpenSettings, Quit, ToggleSidebar};
 
@@ -301,6 +303,7 @@ impl TinytextApp {
                 editor: EditorSettings {
                     font_family: Some(cx.theme().mono_font_family.to_string()),
                     font_size: Some(cx.theme().mono_font_size.as_f32()),
+                    font_weight: Some(DEFAULT_FONT_WEIGHT),
                 },
             };
             let written = serde_json::to_string_pretty(&starter)
