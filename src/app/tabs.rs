@@ -149,6 +149,11 @@ impl TinytextApp {
         self.close_tabs(indices, window, cx);
     }
 
+    pub(super) fn close_all_tabs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let indices = (0..self.tabs.len()).collect();
+        self.close_tabs(indices, window, cx);
+    }
+
     pub(super) fn close_tabs_with_deleted_files(
         &mut self,
         window: &mut Window,

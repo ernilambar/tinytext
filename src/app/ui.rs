@@ -197,6 +197,7 @@ impl TinytextApp {
                 let close_entity = menu_entity.clone();
                 let others_entity = menu_entity.clone();
                 let right_entity = menu_entity.clone();
+                let all_entity = menu_entity.clone();
                 let deleted_entity = menu_entity.clone();
 
                 menu.item(
@@ -220,6 +221,11 @@ impl TinytextApp {
                             right_entity
                                 .update(cx, |this, cx| this.close_tabs_to_right(ix, window, cx));
                         }),
+                )
+                .item(
+                    PopupMenuItem::new("Close All").on_click(move |_, window, cx| {
+                        all_entity.update(cx, |this, cx| this.close_all_tabs(window, cx));
+                    }),
                 )
                 .separator()
                 .item(
