@@ -9,7 +9,7 @@ use gpui_kit::component::{
 use gpui_kit::*;
 
 use crate::language::{editor_language_id, language_for};
-use crate::paths::{copy_entry, file_name, is_valid_entry_name, remap_prefix};
+use crate::paths::{copy_entry, duplicate_name, file_name, is_valid_entry_name, remap_prefix};
 use crate::{NewFile, OpenFile, OpenFolder, SaveAll, SaveFile, SaveFileAs};
 
 use super::{FileClipboard, TinytextApp};
@@ -140,7 +140,7 @@ impl TinytextApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(ix) = self.focused_tab() else {
+        let Some(ix) = self.active_tab else {
             return;
         };
         let Some(tab) = self.tabs.get(ix) else {
@@ -176,7 +176,7 @@ impl TinytextApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(ix) = self.focused_tab() else {
+        let Some(ix) = self.active_tab else {
             return;
         };
         let Some(tab) = self.tabs.get(ix) else {
@@ -455,6 +455,180 @@ impl TinytextApp {
                     }
                     Err(error) => window.push_notification(
                         Notification::error(format!("Could not rename: {error}")),
+                        cx,
+                    ),
+                }
+            },
+        );
+    }
+
+    /// Prompts for the destination path, pre-filled with a non-colliding
+    /// sibling name, and copies `path` there.
+    pub(super) fn duplicate_entry(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(parent) = path.parent() else {
+            return;
+        };
+        let initial = parent.join(duplicate_name(&path)).display().to_string();
+        let description = format!("Duplicate \"{}\"", file_name(&path));
+
+        self.prompt_for_name(
+            NamePrompt {
+                title: "Duplicate",
+                description,
+                initial,
+                ok_text: "Duplicate",
+            },
+            window,
+            cx,
+            move |this, value, window, cx| {
+                let Some(parent) = path.parent() else {
+                    return;
+                };
+                let typed = PathBuf::from(value);
+                let destination = if typed.is_absolute() {
+                    typed
+                } else {
+                    parent.join(typed)
+                };
+
+                if destination == path {
+                    return;
+                }
+                if destination.exists() {
+                    window.push_notification(
+                        Notification::error(format!(
+                            "\"{}\" already exists",
+                            file_name(&destination)
+                        )),
+                        cx,
+                    );
+                    return;
+                }
+                if let Some(parent) = destination.parent()
+                    && !parent.is_dir()
+                    && let Err(error) = std::fs::create_dir_all(parent)
+                {
+                    window.push_notification(
+                        Notification::error(format!(
+                            "Could not create {}: {error}",
+                            parent.display()
+                        )),
+                        cx,
+                    );
+                    return;
+                }
+
+                match copy_entry(&path, &destination) {
+                    Ok(()) => {
+                        if let Some(parent) = destination.parent() {
+                            this.expanded.insert(parent.to_path_buf());
+                        }
+                        let name = file_name(&destination);
+                        this.selected_path = Some(destination);
+                        this.save_session();
+                        cx.notify();
+                        window.push_notification(
+                            Notification::success(format!("Duplicated as {name}")),
+                            cx,
+                        );
+                    }
+                    Err(error) => window.push_notification(
+                        Notification::error(format!(
+                            "Could not duplicate {}: {error}",
+                            file_name(&path)
+                        )),
+                        cx,
+                    ),
+                }
+            },
+        );
+    }
+
+    /// Prompts for the destination path, pre-filled with the current path, and
+    /// moves `path` there.
+    pub(super) fn move_entry(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let initial = path.display().to_string();
+        let description = format!("Move \"{}\"", file_name(&path));
+
+        self.prompt_for_name(
+            NamePrompt {
+                title: "Move",
+                description,
+                initial,
+                ok_text: "Move",
+            },
+            window,
+            cx,
+            move |this, value, window, cx| {
+                let Some(parent) = path.parent() else {
+                    return;
+                };
+                let typed = PathBuf::from(value);
+                let destination = if typed.is_absolute() {
+                    typed
+                } else {
+                    parent.join(typed)
+                };
+
+                if destination == path {
+                    return;
+                }
+                if destination.exists() {
+                    window.push_notification(
+                        Notification::error(format!(
+                            "\"{}\" already exists",
+                            file_name(&destination)
+                        )),
+                        cx,
+                    );
+                    return;
+                }
+                if path.is_dir() && destination.starts_with(&path) {
+                    window.push_notification(
+                        Notification::error("Cannot move a folder into itself".to_string()),
+                        cx,
+                    );
+                    return;
+                }
+                if let Some(parent) = destination.parent()
+                    && !parent.is_dir()
+                    && let Err(error) = std::fs::create_dir_all(parent)
+                {
+                    window.push_notification(
+                        Notification::error(format!(
+                            "Could not create {}: {error}",
+                            parent.display()
+                        )),
+                        cx,
+                    );
+                    return;
+                }
+
+                match std::fs::rename(&path, &destination) {
+                    Ok(()) => {
+                        if let Some(parent) = destination.parent() {
+                            this.expanded.insert(parent.to_path_buf());
+                        }
+                        let name = file_name(&destination);
+                        this.after_rename(&path, &destination, cx);
+                        window
+                            .push_notification(Notification::success(format!("Moved {name}")), cx);
+                    }
+                    Err(error) => window.push_notification(
+                        Notification::error(format!(
+                            "Could not move {}: {error}",
+                            file_name(&path)
+                        )),
                         cx,
                     ),
                 }

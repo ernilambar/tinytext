@@ -54,7 +54,6 @@ impl TinytextApp {
             _subscriptions: vec![change_subscription, cursor_subscription],
         });
         self.active_tab = Some(self.tabs.len() - 1);
-        self.focused_side = false;
 
         editor.update(cx, |state, cx| state.focus(window, cx));
         let position = editor.read(cx).cursor_position();
@@ -77,7 +76,6 @@ impl TinytextApp {
 
     pub(super) fn activate_tab(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         self.active_tab = Some(ix);
-        self.focused_side = false;
         if let Some(tab) = self.tabs.get(ix) {
             let editor = tab.editor.clone();
             editor.update(cx, |state, cx| state.focus(window, cx));
@@ -212,15 +210,6 @@ impl TinytextApp {
 
         self.tabs.remove(ix);
 
-        if self.side_tab == Some(ix) {
-            self.side_tab = None;
-            self.focused_side = false;
-        } else if let Some(side) = self.side_tab
-            && side > ix
-        {
-            self.side_tab = Some(side - 1);
-        }
-
         self.active_tab = if self.tabs.is_empty() {
             None
         } else {
@@ -228,9 +217,6 @@ impl TinytextApp {
             let active = if ix < active { active - 1 } else { active };
             Some(active.min(self.tabs.len() - 1))
         };
-        if self.tabs.is_empty() {
-            self.focused_side = false;
-        }
 
         if let Some(tab) = self.active_tab.and_then(|ix| self.tabs.get(ix)) {
             tab.editor.update(cx, |state, cx| state.focus(window, cx));
@@ -256,7 +242,7 @@ impl TinytextApp {
     }
 
     pub(super) fn sync_cursor(&mut self, id: EntityId, cx: &mut Context<Self>) {
-        let Some(ix) = self.focused_tab() else {
+        let Some(ix) = self.active_tab else {
             return;
         };
         let position = {
@@ -271,95 +257,6 @@ impl TinytextApp {
 
         self.cursor_line = position.line as usize + 1;
         self.cursor_col = position.character as usize + 1;
-        cx.notify();
-    }
-
-    /// Shows an already-open tab in the secondary pane. When the tab is the
-    /// active one, another tab takes the primary side so the two panes never
-    /// render the same editor twice.
-    pub(super) fn open_to_side(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if ix >= self.tabs.len() {
-            return;
-        }
-        if self.active_tab == Some(ix) {
-            if self.tabs.len() < 2 {
-                return;
-            }
-            self.active_tab = Some(if ix == 0 { 1 } else { 0 });
-        } else if self.active_tab.is_none() {
-            return;
-        }
-        self.side_tab = Some(ix);
-        self.focused_side = false;
-        self.focus_tab(self.active_tab, window, cx);
-        cx.notify();
-    }
-
-    /// Moves keyboard focus to a tab's editor, or the root handle when there is
-    /// none, so the model's focused pane matches GPUI's.
-    fn focus_tab(&self, ix: Option<usize>, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(editor) = ix
-            .and_then(|ix| self.tabs.get(ix))
-            .map(|tab| tab.editor.clone())
-        {
-            editor.update(cx, |state, cx| state.focus(window, cx));
-        } else {
-            self.focus_handle.focus(window, cx);
-        }
-    }
-
-    /// Opens a tree entry into the secondary pane, loading it first when it is
-    /// not already open. With no primary tab yet it opens normally instead.
-    pub(super) fn open_path_to_side(
-        &mut self,
-        path: PathBuf,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if path.is_dir() {
-            return;
-        }
-        if let Some(ix) = self
-            .tabs
-            .iter()
-            .position(|tab| tab.path.as_deref() == Some(path.as_path()))
-        {
-            self.open_to_side(ix, window, cx);
-            return;
-        }
-
-        let anchor = self.active_tab;
-        cx.spawn_in(window, async move |this, cx| {
-            let read = cx
-                .background_executor()
-                .spawn({
-                    let path = path.clone();
-                    async move { std::fs::read_to_string(path) }
-                })
-                .await;
-            if let Ok(content) = read {
-                this.update_in(cx, |this, window, cx| {
-                    this.add_tab(Some(path.clone()), content, window, cx);
-                    let ix = this.tabs.len() - 1;
-                    if let Some(anchor) = anchor.filter(|anchor| *anchor < ix) {
-                        // `add_tab` focused the new editor; show it on the
-                        // right and let it keep the caret.
-                        this.active_tab = Some(anchor);
-                        this.side_tab = Some(ix);
-                        this.focused_side = true;
-                        cx.notify();
-                    }
-                })
-                .ok();
-            }
-        })
-        .detach();
-    }
-
-    pub(super) fn close_side(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.side_tab = None;
-        self.focused_side = false;
-        self.focus_tab(self.active_tab, window, cx);
         cx.notify();
     }
 }

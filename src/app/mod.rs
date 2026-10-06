@@ -23,6 +23,9 @@ use crate::{
     RevealInFinder, ToggleSidebar,
 };
 
+/// The app name shown in the window title, before the focused tab's path.
+pub(crate) const WINDOW_TITLE: &str = "Tinytext";
+
 struct OpenTab {
     path: Option<PathBuf>,
     title: SharedString,
@@ -46,17 +49,15 @@ pub(crate) struct TinytextApp {
     selected_path: Option<PathBuf>,
     tabs: Vec<OpenTab>,
     active_tab: Option<usize>,
-    /// The tab shown in the secondary editor pane, when one is open.
-    side_tab: Option<usize>,
-    /// Which pane owns the caret and therefore which tab Save and the status
-    /// bar act on.
-    focused_side: bool,
     context_tab: Option<usize>,
     file_clipboard: Option<FileClipboard>,
     sidebar_visible: bool,
     cursor_line: usize,
     cursor_col: usize,
     settings: Settings,
+    /// The window title currently applied, so it is only pushed to the platform
+    /// when the focused tab changes.
+    window_title: String,
 }
 
 impl TinytextApp {
@@ -78,14 +79,30 @@ impl TinytextApp {
             selected_path: None,
             tabs: Vec::new(),
             active_tab: None,
-            side_tab: None,
-            focused_side: false,
             context_tab: None,
             file_clipboard: None,
             sidebar_visible,
             cursor_line: 1,
             cursor_col: 1,
             settings,
+            window_title: WINDOW_TITLE.to_string(),
+        }
+    }
+
+    /// Keeps the native window title in sync with the focused tab, appending the
+    /// file's full path after the app name.
+    fn sync_window_title(&mut self, window: &mut Window) {
+        let title = match self.active() {
+            Some(tab) => match tab.path.as_deref() {
+                Some(path) => format!("{WINDOW_TITLE} — {}", path.display()),
+                None => format!("{WINDOW_TITLE} — Untitled"),
+            },
+            None => WINDOW_TITLE.to_string(),
+        };
+
+        if title != self.window_title {
+            window.set_window_title(&title);
+            self.window_title = title;
         }
     }
 
@@ -186,18 +203,8 @@ impl TinytextApp {
         }
     }
 
-    /// The tab index the user is currently working in: the secondary pane when
-    /// it holds focus, otherwise the primary one.
-    pub(super) fn focused_tab(&self) -> Option<usize> {
-        if self.focused_side {
-            self.side_tab.or(self.active_tab)
-        } else {
-            self.active_tab
-        }
-    }
-
     fn active(&self) -> Option<&OpenTab> {
-        self.focused_tab().and_then(|ix| self.tabs.get(ix))
+        self.active_tab.and_then(|ix| self.tabs.get(ix))
     }
 
     fn active_language(&self) -> SharedString {
@@ -511,7 +518,9 @@ fn about_icon() -> impl IntoElement {
 }
 
 impl Render for TinytextApp {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_window_title(window);
+
         div()
             .id("tinytext-root")
             .v_flex()

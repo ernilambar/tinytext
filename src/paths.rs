@@ -121,6 +121,39 @@ pub(crate) fn copy_entry(from: &Path, to: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// A sibling name for a duplicate of `path`, following the Finder convention:
+/// `"main.rs"` becomes `"main copy.rs"`, then `"main copy 2.rs"`, and so on.
+/// Directories keep their whole name (`"docs"` becomes `"docs copy"`).
+pub(crate) fn duplicate_name(path: &Path) -> String {
+    let is_dir = path.is_dir();
+    let stem = if is_dir {
+        file_name(path)
+    } else {
+        path.file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+            .unwrap_or_else(|| file_name(path))
+    };
+    let extension = if is_dir {
+        None
+    } else {
+        path.extension()
+            .map(|extension| extension.to_string_lossy().into_owned())
+    };
+
+    let candidate = |suffix: &str| match &extension {
+        Some(extension) => format!("{stem} copy{suffix}.{extension}"),
+        None => format!("{stem} copy{suffix}"),
+    };
+
+    let mut name = candidate("");
+    let mut counter = 1;
+    while path.with_file_name(&name).exists() {
+        counter += 1;
+        name = candidate(&format!(" {counter}"));
+    }
+    name
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -244,6 +277,26 @@ mod tests {
             std::fs::read_to_string(to.join("nested/b.txt")).unwrap(),
             "b"
         );
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn duplicate_name_follows_finder_convention() {
+        let root = std::env::temp_dir().join(format!("tinytext-dup-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let file = root.join("main.rs");
+        std::fs::write(&file, "").unwrap();
+        assert_eq!(duplicate_name(&file), "main copy.rs");
+
+        std::fs::write(root.join("main copy.rs"), "").unwrap();
+        assert_eq!(duplicate_name(&file), "main copy 2.rs");
+
+        let dir = root.join("docs");
+        std::fs::create_dir(&dir).unwrap();
+        assert_eq!(duplicate_name(&dir), "docs copy");
 
         std::fs::remove_dir_all(&root).unwrap();
     }

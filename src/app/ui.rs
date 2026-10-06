@@ -172,124 +172,16 @@ impl TinytextApp {
     }
 
     pub(super) fn render_editor_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        match self.split_tab() {
-            Some(side) => h_resizable("editor-panes")
-                .child(
-                    resizable_panel().child(
-                        div()
-                            .v_flex()
-                            .size_full()
-                            .min_w_0()
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(|this, _, _, cx| {
-                                    if this.focused_side {
-                                        this.focused_side = false;
-                                        cx.notify();
-                                    }
-                                }),
-                            )
-                            .child(self.render_tab_bar(cx))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_h_0()
-                                    .child(self.render_editor_for(self.active_tab, cx)),
-                            ),
-                    ),
-                )
-                .child(resizable_panel().child(self.render_side_pane(side, cx)))
-                .into_any_element(),
-            None => div()
-                .v_flex()
-                .size_full()
-                .min_w_0()
-                .child(self.render_tab_bar(cx))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_h_0()
-                        .child(self.render_editor_for(self.active_tab, cx)),
-                )
-                .into_any_element(),
-        }
-    }
-
-    /// The secondary pane's tab, if a split is open. A split is only shown when
-    /// the two panes would render different editors.
-    fn split_tab(&self) -> Option<usize> {
-        let side = self.side_tab?;
-        (side < self.tabs.len() && Some(side) != self.active_tab).then_some(side)
-    }
-
-    fn render_side_pane(&self, side: usize, cx: &mut Context<Self>) -> impl IntoElement {
-        let title = self
-            .tabs
-            .get(side)
-            .map(|tab| tab.title.clone())
-            .unwrap_or_default();
-        let dirty = self.tabs.get(side).is_some_and(|tab| tab.dirty);
-        let deleted = self
-            .tabs
-            .get(side)
-            .and_then(|tab| tab.path.as_deref())
-            .is_some_and(|path| !path.exists());
-        let (dot, dot_color) = if deleted {
-            (true, cx.theme().red)
-        } else {
-            (dirty, cx.theme().foreground)
-        };
-        let entity = cx.entity();
-
         div()
             .v_flex()
             .size_full()
             .min_w_0()
-            .border_l_1()
-            .border_color(cx.theme().border)
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    if !this.focused_side {
-                        this.focused_side = true;
-                        cx.notify();
-                    }
-                }),
-            )
-            .child(
-                div()
-                    .h_flex()
-                    .flex_none()
-                    .h_9()
-                    .px_2()
-                    .items_center()
-                    .gap_2()
-                    .border_b_1()
-                    .border_color(cx.theme().border)
-                    .child(
-                        div()
-                            .h_flex()
-                            .flex_1()
-                            .items_center()
-                            .gap_1()
-                            .child(status_dot(dot, dot_color))
-                            .child(div().text_sm().child(title)),
-                    )
-                    .child(
-                        Button::new("close-side-pane")
-                            .xsmall()
-                            .ghost()
-                            .icon(IconName::Close)
-                            .on_click(move |_, window, cx| {
-                                entity.update(cx, |this, cx| this.close_side(window, cx));
-                            }),
-                    ),
-            )
+            .child(self.render_tab_bar(cx))
             .child(
                 div()
                     .flex_1()
                     .min_h_0()
-                    .child(self.render_editor_for(Some(side), cx)),
+                    .child(self.render_editor_for(self.active_tab, cx)),
             )
     }
 
@@ -510,20 +402,11 @@ impl TinytextApp {
                 } else {
                     let open_entity = menu_entity.clone();
                     let open_path = menu_path.clone();
-                    let side_entity = menu_entity.clone();
-                    let side_path = menu_path.clone();
                     menu.item(PopupMenuItem::new("Open").on_click(move |_, window, cx| {
                         open_entity.update(cx, |this, cx| {
                             this.request_open(open_path.clone(), window, cx)
                         });
                     }))
-                    .item(
-                        PopupMenuItem::new("Open to the Side").on_click(move |_, window, cx| {
-                            side_entity.update(cx, |this, cx| {
-                                this.open_path_to_side(side_path.clone(), window, cx)
-                            });
-                        }),
-                    )
                     .separator()
                 };
 
@@ -542,6 +425,10 @@ impl TinytextApp {
                 let relative_value = menu_path.clone();
                 let rename_entity = menu_entity.clone();
                 let rename_path = menu_path.clone();
+                let duplicate_entity = menu_entity.clone();
+                let duplicate_path = menu_path.clone();
+                let move_entity = menu_entity.clone();
+                let move_path = menu_path.clone();
                 let delete_entity = menu_entity.clone();
                 let delete_path = menu_path.clone();
 
@@ -596,6 +483,18 @@ impl TinytextApp {
                         });
                     }),
                 )
+                .item(
+                    PopupMenuItem::new("Duplicate").on_click(move |_, window, cx| {
+                        duplicate_entity.update(cx, |this, cx| {
+                            this.duplicate_entry(duplicate_path.clone(), window, cx)
+                        });
+                    }),
+                )
+                .item(PopupMenuItem::new("Move…").on_click(move |_, window, cx| {
+                    move_entity.update(cx, |this, cx| {
+                        this.move_entry(move_path.clone(), window, cx)
+                    });
+                }))
                 .item(PopupMenuItem::new("Delete").on_click(move |_, window, cx| {
                     delete_entity.update(cx, |this, cx| {
                         this.delete_entry(delete_path.clone(), window, cx)

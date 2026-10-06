@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use gpui_kit::component::{Theme, ThemeMode, WindowExt as _, input, notification::Notification};
 use gpui_kit::*;
 
-use app::TinytextApp;
+use app::{TinytextApp, WINDOW_TITLE};
 use cli::{CliCommand, parse_args, print_help};
 use paths::path_from_file_url;
 use session::load_session;
@@ -131,7 +131,7 @@ fn main() {
 
         let options = WindowOptions {
             titlebar: Some(TitlebarOptions {
-                title: Some("Tinytext".into()),
+                title: Some(WINDOW_TITLE.into()),
                 ..Default::default()
             }),
             ..Default::default()
