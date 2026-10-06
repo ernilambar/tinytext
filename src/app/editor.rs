@@ -1,0 +1,797 @@
+//! Editor commands that VS Code exposes but gpui-kit's engine does not, plus
+//! the handler glue that applies them to the focused editor.
+//!
+//! The line arithmetic lives in free functions over [`LineBuffer`] so it can be
+//! unit tested without a window. Each command computes a single byte range to
+//! replace and a caret offset; the handler then drives the engine through its
+//! public API: select the range, `replace` it, move the caret.
+
+use std::ops::Range;
+
+use gpui_kit::component::{
+    WindowExt as _,
+    input::{Input, InputState, Position, RopeExt as _},
+};
+use gpui_kit::*;
+
+use crate::{
+    CopyLineDown, CopyLineUp, DeleteLine, GoToLine, InsertLineAbove, InsertLineBelow, MoveLineDown,
+    MoveLineUp, SelectLine, ToggleLineComment,
+};
+
+use super::TinytextApp;
+
+/// A single replacement to apply to the document.
+struct Commit {
+    /// Byte range in the current text to replace.
+    range: Range<usize>,
+    replacement: String,
+    /// Caret byte offset in the text *after* the replacement is applied.
+    cursor: usize,
+}
+
+/// The document viewed as lines. Line contents keep a trailing `\r` so CRLF
+/// files round-trip, but drop the `\n`. `starts[i]` is the byte offset where
+/// line `i` begins.
+struct LineBuffer<'a> {
+    text: &'a str,
+    starts: Vec<usize>,
+    lines: Vec<&'a str>,
+    trailing_newline: bool,
+}
+
+impl<'a> LineBuffer<'a> {
+    fn new(text: &'a str) -> Self {
+        let mut starts = vec![0];
+        for (i, byte) in text.bytes().enumerate() {
+            if byte == b'\n' {
+                starts.push(i + 1);
+            }
+        }
+
+        let trailing_newline = text.ends_with('\n');
+        // A trailing `\n` does not start a new line; drop the empty line it
+        // would otherwise create so the last content line stays the last line.
+        if trailing_newline && starts.len() > 1 {
+            starts.pop();
+        }
+
+        let lines = (0..starts.len())
+            .map(|i| {
+                let start = starts[i];
+                let end = starts.get(i + 1).copied().unwrap_or(text.len());
+                let end = if end > start && text.as_bytes()[end - 1] == b'\n' {
+                    end - 1
+                } else {
+                    end
+                };
+                &text[start..end]
+            })
+            .collect();
+
+        Self {
+            text,
+            starts,
+            lines,
+            trailing_newline,
+        }
+    }
+
+    fn line_count(&self) -> usize {
+        self.lines.len()
+    }
+
+    fn is_last(&self, line: usize) -> bool {
+        line + 1 == self.lines.len()
+    }
+
+    /// Whether line `line` is followed by a line break in the document.
+    fn has_newline(&self, line: usize) -> bool {
+        !self.is_last(line) || self.trailing_newline
+    }
+
+    fn start(&self, line: usize) -> usize {
+        self.starts[line]
+    }
+
+    /// Byte offset just past line `line`, including its line break if present.
+    fn end(&self, line: usize) -> usize {
+        self.start(line) + self.lines[line].len() + usize::from(self.has_newline(line))
+    }
+
+    /// Index of the line containing byte offset `offset`.
+    fn index_at(&self, offset: usize) -> usize {
+        self.starts.partition_point(|&start| start <= offset) - 1
+    }
+
+    /// The first and last lines touched by `selection`. An empty selection
+    /// touches the line under the caret.
+    fn touched(&self, selection: &Range<usize>) -> (usize, usize) {
+        let first = self.index_at(selection.start);
+        let last_offset = if selection.end > selection.start {
+            selection.end - 1
+        } else {
+            selection.start
+        };
+        (first, self.index_at(last_offset))
+    }
+}
+
+/// Joins line contents back into text, adding a final line break when asked.
+fn render(lines: &[&str], ends_with_newline: bool) -> String {
+    let mut out = lines.join("\n");
+    if ends_with_newline && !lines.is_empty() {
+        out.push('\n');
+    }
+    out
+}
+
+/// Leading spaces and tabs of a line.
+fn leading_indent(line: &str) -> &str {
+    let rest = line.trim_start_matches([' ', '\t']);
+    &line[..line.len() - rest.len()]
+}
+
+/// Deletes every line touched by the selection. When the last line is removed
+/// and it had no trailing newline, the preceding newline goes with it so the
+/// file does not keep a trailing blank line.
+fn delete_lines(buf: &LineBuffer, selection: &Range<usize>) -> Commit {
+    let (first, last) = buf.touched(selection);
+    let mut range = buf.start(first)..buf.end(last);
+    if range.end == buf.text.len() && !buf.has_newline(last) && range.start > 0 {
+        range.start -= 1;
+    }
+    Commit {
+        cursor: range.start,
+        range,
+        replacement: String::new(),
+    }
+}
+
+/// Moves the selected lines one line up or down. Returns `None` at the edge.
+fn move_lines(buf: &LineBuffer, selection: &Range<usize>, up: bool) -> Option<Commit> {
+    let (first, last) = buf.touched(selection);
+    let moved = &buf.lines[first..=last];
+    let caret_in_block = selection.start - buf.start(first);
+
+    if up {
+        if first == 0 {
+            return None;
+        }
+        let mut lines: Vec<&str> = moved.to_vec();
+        lines.push(buf.lines[first - 1]);
+        let range = buf.start(first - 1)..buf.end(last);
+        let replacement = render(&lines, buf.has_newline(last));
+        Some(Commit {
+            cursor: range.start + caret_in_block,
+            range,
+            replacement,
+        })
+    } else {
+        if last + 1 >= buf.line_count() {
+            return None;
+        }
+        let next = buf.lines[last + 1];
+        let mut lines: Vec<&str> = Vec::with_capacity(moved.len() + 1);
+        lines.push(next);
+        lines.extend_from_slice(moved);
+        let range = buf.start(first)..buf.end(last + 1);
+        // `next` always gains a line break: the moved block follows it.
+        let prefix = render(&[next], true).len();
+        let replacement = render(&lines, buf.has_newline(last + 1));
+        Some(Commit {
+            cursor: range.start + prefix + caret_in_block,
+            range,
+            replacement,
+        })
+    }
+}
+
+/// Duplicates the selected lines. Copy up and copy down produce the same text
+/// and both leave the caret on the lower of the two copies, matching VS Code.
+fn duplicate_lines(buf: &LineBuffer, selection: &Range<usize>) -> Commit {
+    let (first, last) = buf.touched(selection);
+    let moved = &buf.lines[first..=last];
+    let caret_in_block = selection.start - buf.start(first);
+
+    let mut lines: Vec<&str> = Vec::with_capacity(moved.len() * 2);
+    lines.extend_from_slice(moved);
+    lines.extend_from_slice(moved);
+
+    let range = buf.start(first)..buf.end(last);
+    let replacement = render(&lines, buf.has_newline(last));
+    // The first copy is always followed by the second, so it gets a separator
+    // even when the source line ended the file without one.
+    let first_copy = render(moved, true).len();
+    Commit {
+        cursor: range.start + first_copy + caret_in_block,
+        range,
+        replacement,
+    }
+}
+
+/// Inserts an empty line above or below the selection, keeping its indentation.
+fn insert_line(buf: &LineBuffer, selection: &Range<usize>, above: bool) -> Commit {
+    let (first, last) = buf.touched(selection);
+
+    if above {
+        let at = buf.start(first);
+        let indent = leading_indent(buf.lines[first]);
+        return Commit {
+            range: at..at,
+            replacement: format!("{indent}\n"),
+            cursor: at + indent.len(),
+        };
+    }
+
+    let at = buf.end(last);
+    let indent = leading_indent(buf.lines[last]);
+    if buf.has_newline(last) {
+        // There is already a break after the line; open a new one before it.
+        Commit {
+            range: at..at,
+            replacement: format!("{indent}\n"),
+            cursor: at + indent.len(),
+        }
+    } else {
+        // The line ends the file; start a fresh one after it.
+        Commit {
+            range: at..at,
+            replacement: format!("\n{indent}"),
+            cursor: at + 1 + indent.len(),
+        }
+    }
+}
+
+/// The full-line range the selection should expand to for "select line".
+fn select_line_range(buf: &LineBuffer, selection: &Range<usize>) -> Range<usize> {
+    let (first, last) = buf.touched(selection);
+    buf.start(first)..buf.end(last)
+}
+
+/// How a language comments out code.
+#[derive(Clone, Copy)]
+enum CommentStyle {
+    Line(&'static str),
+    Block {
+        open: &'static str,
+        close: &'static str,
+    },
+}
+
+/// The comment syntax for an app language name, or `None` when the language has
+/// no comments (plain text).
+fn comment_style(language: &str) -> Option<CommentStyle> {
+    match language {
+        "Rust" | "JavaScript" | "TypeScript" | "PHP" | "JSON" => Some(CommentStyle::Line("//")),
+        "Python" | "TOML" => Some(CommentStyle::Line("#")),
+        "HTML" | "Markdown" => Some(CommentStyle::Block {
+            open: "<!--",
+            close: "-->",
+        }),
+        "CSS" => Some(CommentStyle::Block {
+            open: "/*",
+            close: "*/",
+        }),
+        _ => None,
+    }
+}
+
+fn toggle_comment(buf: &LineBuffer, selection: &Range<usize>, style: CommentStyle) -> Commit {
+    let (first, last) = buf.touched(selection);
+    let mut lines: Vec<String> = buf.lines[first..=last]
+        .iter()
+        .map(|line| (*line).to_string())
+        .collect();
+
+    match style {
+        CommentStyle::Line(token) => {
+            // Comment when any line still lacks the token; otherwise uncomment.
+            let commented = buf.lines[first..=last]
+                .iter()
+                .all(|line| line.trim().is_empty() || line.trim_start().starts_with(token));
+
+            for line in &mut lines {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let (indent, rest) = split_indent(line);
+                if commented {
+                    let rest = rest.strip_prefix(token).unwrap_or(rest);
+                    let rest = rest.strip_prefix(' ').unwrap_or(rest);
+                    *line = format!("{indent}{rest}");
+                } else {
+                    *line = format!("{indent}{token} {rest}");
+                }
+            }
+        }
+        CommentStyle::Block { open, close } => {
+            let commented = buf.lines[first].trim_start().starts_with(open);
+            if commented {
+                let (indent, rest) = split_indent(&lines[0]);
+                if let Some(rest) = rest.strip_prefix(open) {
+                    let rest = rest.strip_prefix(' ').unwrap_or(rest);
+                    lines[0] = format!("{indent}{rest}");
+                }
+                let end = lines.len() - 1;
+                let suffixed = format!(" {close}");
+                if let Some(rest) = lines[end].strip_suffix(&suffixed) {
+                    lines[end] = rest.to_string();
+                } else if let Some(rest) = lines[end].strip_suffix(close) {
+                    lines[end] = rest.to_string();
+                }
+            } else {
+                let (indent, rest) = split_indent(&lines[0]);
+                lines[0] = format!("{indent}{open} {rest}");
+                let end = lines.len() - 1;
+                lines[end].push(' ');
+                lines[end].push_str(close);
+            }
+        }
+    }
+
+    let range = buf.start(first)..buf.end(last);
+    let locations: Vec<&str> = lines.iter().map(String::as_str).collect();
+    let replacement = render(&locations, buf.has_newline(last));
+
+    // The caret sits on the first line; shift it by that line's length change.
+    let caret_in_line = selection.start - buf.start(first);
+    let delta = lines[0].len() as isize - buf.lines[first].len() as isize;
+    let caret = (caret_in_line as isize + delta).clamp(0, lines[0].len() as isize) as usize;
+
+    Commit {
+        cursor: range.start + caret,
+        range,
+        replacement,
+    }
+}
+
+fn split_indent(line: &str) -> (&str, &str) {
+    let indent = leading_indent(line);
+    (indent, &line[indent.len()..])
+}
+
+impl TinytextApp {
+    /// Runs `edit` against the focused editor's text and selection and applies
+    /// the resulting replacement, if any.
+    fn apply_to_editor<F>(&mut self, window: &mut Window, cx: &mut Context<Self>, edit: F)
+    where
+        F: FnOnce(&str, &Range<usize>) -> Option<Commit>,
+    {
+        let Some(tab) = self.active() else {
+            return;
+        };
+        let editor = tab.editor.clone();
+
+        editor.update(cx, |state, cx| {
+            let text = state.text().to_string();
+            let selection = state.selected_range();
+            let Some(commit) = edit(&text, &selection) else {
+                return;
+            };
+
+            state.set_selected_range(commit.range, cx);
+            state.replace(commit.replacement, window, cx);
+
+            let offset = commit.cursor.min(state.text().len());
+            let position = state.text().offset_to_position(offset);
+            state.set_cursor_position(position, window, cx);
+        });
+    }
+
+    pub(super) fn on_toggle_line_comment(
+        &mut self,
+        _: &ToggleLineComment,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let language = self.active_language();
+        let Some(style) = comment_style(&language) else {
+            return;
+        };
+        self.apply_to_editor(window, cx, move |text, selection| {
+            let buf = LineBuffer::new(text);
+            Some(toggle_comment(&buf, selection, style))
+        });
+    }
+
+    pub(super) fn on_delete_line(
+        &mut self,
+        _: &DeleteLine,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_to_editor(window, cx, |text, selection| {
+            let buf = LineBuffer::new(text);
+            Some(delete_lines(&buf, selection))
+        });
+    }
+
+    pub(super) fn on_move_line_up(
+        &mut self,
+        _: &MoveLineUp,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_to_editor(window, cx, |text, selection| {
+            move_lines(&LineBuffer::new(text), selection, true)
+        });
+    }
+
+    pub(super) fn on_move_line_down(
+        &mut self,
+        _: &MoveLineDown,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_to_editor(window, cx, |text, selection| {
+            move_lines(&LineBuffer::new(text), selection, false)
+        });
+    }
+
+    pub(super) fn on_copy_line_up(
+        &mut self,
+        _: &CopyLineUp,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_to_editor(window, cx, |text, selection| {
+            Some(duplicate_lines(&LineBuffer::new(text), selection))
+        });
+    }
+
+    pub(super) fn on_copy_line_down(
+        &mut self,
+        _: &CopyLineDown,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_to_editor(window, cx, |text, selection| {
+            Some(duplicate_lines(&LineBuffer::new(text), selection))
+        });
+    }
+
+    pub(super) fn on_insert_line_above(
+        &mut self,
+        _: &InsertLineAbove,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_to_editor(window, cx, |text, selection| {
+            Some(insert_line(&LineBuffer::new(text), selection, true))
+        });
+    }
+
+    pub(super) fn on_insert_line_below(
+        &mut self,
+        _: &InsertLineBelow,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_to_editor(window, cx, |text, selection| {
+            Some(insert_line(&LineBuffer::new(text), selection, false))
+        });
+    }
+
+    pub(super) fn on_select_line(
+        &mut self,
+        _: &SelectLine,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(tab) = self.active() else {
+            return;
+        };
+        let editor = tab.editor.clone();
+        editor.update(cx, |state, cx| {
+            let text = state.text().to_string();
+            let range = select_line_range(&LineBuffer::new(&text), &state.selected_range());
+            state.set_selected_range(range, cx);
+        });
+    }
+
+    pub(super) fn on_go_to_line(
+        &mut self,
+        _: &GoToLine,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(tab) = self.active() else {
+            return;
+        };
+        let editor = tab.editor.clone();
+
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder("Line number"));
+        let value_input = input.clone();
+        let focus_input = input.clone();
+
+        window.open_alert_dialog(cx, move |alert, _window, _cx| {
+            let value_input = value_input.clone();
+            let editor = editor.clone();
+            alert
+                .confirm()
+                .title("Go to Line")
+                .description("Enter a line number")
+                .child(div().w_full().child(Input::new(&input).w_full()))
+                .ok_text("Go")
+                .cancel_text("Cancel")
+                .on_ok(move |_, window, cx| {
+                    let Ok(line) = value_input.read(cx).value().trim().parse::<usize>() else {
+                        return false;
+                    };
+                    if line == 0 {
+                        return false;
+                    }
+                    editor.update(cx, |state, cx| {
+                        let last = state.text().lines_len().saturating_sub(1);
+                        let line = (line - 1).min(last);
+                        state.set_cursor_position(Position::new(line as u32, 0), window, cx);
+                    });
+                    true
+                })
+        });
+
+        window.defer(cx, move |window, cx| {
+            focus_input.update(cx, |state, cx| state.focus(window, cx));
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ops::Range;
+
+    // Explicit imports: `use super::*` would pull in gpui-kit's `test` attribute
+    // macro and shadow the built-in one, making `#[test]` recurse.
+    use super::{
+        CommentStyle, Commit, LineBuffer, comment_style, delete_lines, duplicate_lines,
+        insert_line, move_lines, select_line_range, toggle_comment,
+    };
+
+    /// Applies a commit to `text` the way the handler does.
+    fn apply(text: &str, commit: &Commit) -> String {
+        let mut out = String::from(&text[..commit.range.start]);
+        out.push_str(&commit.replacement);
+        out.push_str(&text[commit.range.end..]);
+        out
+    }
+
+    fn at(offset: usize) -> Range<usize> {
+        offset..offset
+    }
+
+    #[test]
+    fn buffer_splits_lines_and_offsets() {
+        let buf = LineBuffer::new("a\nbb\nccc");
+        assert_eq!(buf.lines, ["a", "bb", "ccc"]);
+        assert_eq!(buf.starts, [0, 2, 5]);
+        assert_eq!(buf.end(0), 2);
+        assert_eq!(buf.end(2), 8);
+        assert!(!buf.trailing_newline);
+
+        let buf = LineBuffer::new("a\r\nb\n");
+        assert_eq!(buf.lines, ["a\r", "b"]);
+        assert!(buf.trailing_newline);
+        assert_eq!(buf.lines.len(), 2);
+    }
+
+    #[test]
+    fn empty_document_is_one_line() {
+        let buf = LineBuffer::new("");
+        assert_eq!(buf.lines, [""]);
+        assert_eq!(buf.index_at(0), 0);
+        assert_eq!(buf.end(0), 0);
+    }
+
+    #[test]
+    fn index_at_maps_offsets_to_lines() {
+        let text = "a\nbb\nccc";
+        let buf = LineBuffer::new(text);
+        assert_eq!(buf.index_at(0), 0);
+        assert_eq!(buf.index_at(1), 0);
+        assert_eq!(buf.index_at(2), 1);
+        assert_eq!(buf.index_at(4), 1);
+        assert_eq!(buf.index_at(5), 2);
+        assert_eq!(buf.index_at(text.len()), 2);
+    }
+
+    #[test]
+    fn trailing_newline_does_not_add_a_line() {
+        let text = "a\nb\n";
+        let buf = LineBuffer::new(text);
+        assert_eq!(buf.lines, ["a", "b"]);
+        assert!(buf.trailing_newline);
+        assert_eq!(buf.index_at(text.len()), 1);
+        assert!(move_lines(&buf, &at(2), false).is_none());
+    }
+
+    #[test]
+    fn delete_middle_line() {
+        let text = "a\nb\nc";
+        let commit = delete_lines(&LineBuffer::new(text), &at(2));
+        assert_eq!(apply(text, &commit), "a\nc");
+        assert_eq!(commit.cursor, 2);
+    }
+
+    #[test]
+    fn delete_last_line_without_trailing_newline_drops_the_break() {
+        let text = "a\nb";
+        let commit = delete_lines(&LineBuffer::new(text), &at(2));
+        assert_eq!(apply(text, &commit), "a");
+    }
+
+    #[test]
+    fn delete_last_line_with_trailing_newline_keeps_the_break() {
+        let text = "a\nb\n";
+        let commit = delete_lines(&LineBuffer::new(text), &at(2));
+        assert_eq!(apply(text, &commit), "a\n");
+    }
+
+    #[test]
+    fn delete_selected_lines() {
+        let text = "a\nb\nc\nd";
+        let commit = delete_lines(&LineBuffer::new(text), &(2..5));
+        assert_eq!(apply(text, &commit), "a\nd");
+    }
+
+    #[test]
+    fn move_line_up_swaps_with_previous() {
+        let text = "a\nb\nc";
+        let commit = move_lines(&LineBuffer::new(text), &at(4), true).unwrap();
+        assert_eq!(apply(text, &commit), "a\nc\nb");
+    }
+
+    #[test]
+    fn move_line_up_at_top_is_a_noop() {
+        assert!(move_lines(&LineBuffer::new("a\nb"), &at(0), true).is_none());
+    }
+
+    #[test]
+    fn move_line_down_swaps_with_next() {
+        let text = "a\nb\nc";
+        let commit = move_lines(&LineBuffer::new(text), &at(0), false).unwrap();
+        assert_eq!(apply(text, &commit), "b\na\nc");
+        assert_eq!(commit.cursor, 2);
+    }
+
+    #[test]
+    fn move_line_down_at_bottom_is_a_noop() {
+        assert!(move_lines(&LineBuffer::new("a\nb"), &at(2), false).is_none());
+    }
+
+    #[test]
+    fn move_block_preserves_lines() {
+        let text = "a\nb\nc\nd";
+        let commit = move_lines(&LineBuffer::new(text), &(2..5), true).unwrap();
+        assert_eq!(apply(text, &commit), "b\nc\na\nd");
+    }
+
+    #[test]
+    fn duplicate_line_appends_a_copy() {
+        let text = "a\nb";
+        let commit = duplicate_lines(&LineBuffer::new(text), &at(0));
+        assert_eq!(apply(text, &commit), "a\na\nb");
+    }
+
+    #[test]
+    fn duplicate_last_line_without_newline() {
+        let text = "a\nb";
+        let commit = duplicate_lines(&LineBuffer::new(text), &at(2));
+        assert_eq!(apply(text, &commit), "a\nb\nb");
+        assert_eq!(commit.cursor, 4);
+    }
+
+    #[test]
+    fn insert_line_below() {
+        let text = "a\nb";
+        let commit = insert_line(&LineBuffer::new(text), &at(0), false);
+        assert_eq!(apply(text, &commit), "a\n\nb");
+        assert_eq!(commit.cursor, 2);
+    }
+
+    #[test]
+    fn insert_line_below_preserves_indent() {
+        let text = "  a\nb";
+        let commit = insert_line(&LineBuffer::new(text), &(2..3), false);
+        assert_eq!(apply(text, &commit), "  a\n  \nb");
+        assert_eq!(commit.cursor, 6);
+    }
+
+    #[test]
+    fn insert_line_below_at_end_of_file() {
+        let text = "a";
+        let commit = insert_line(&LineBuffer::new(text), &at(0), false);
+        assert_eq!(apply(text, &commit), "a\n");
+        assert_eq!(commit.cursor, 2);
+    }
+
+    #[test]
+    fn insert_line_above() {
+        let text = "a\nb";
+        let commit = insert_line(&LineBuffer::new(text), &at(2), true);
+        assert_eq!(apply(text, &commit), "a\n\nb");
+        assert_eq!(commit.cursor, 2);
+    }
+
+    #[test]
+    fn select_line_expands_to_full_lines() {
+        let text = "a\nbb\nc";
+        let range = select_line_range(&LineBuffer::new(text), &at(3));
+        assert_eq!(range, 2..5);
+    }
+
+    #[test]
+    fn toggle_line_comment_comments_then_uncomments() {
+        let text = "let x = 1;\n";
+        let buf = LineBuffer::new(text);
+        let commit = toggle_comment(&buf, &at(0), CommentStyle::Line("//"));
+        assert_eq!(apply(text, &commit), "// let x = 1;\n");
+
+        let text = "// let x = 1;\n";
+        let buf = LineBuffer::new(text);
+        let commit = toggle_comment(&buf, &at(0), CommentStyle::Line("//"));
+        assert_eq!(apply(text, &commit), "let x = 1;\n");
+    }
+
+    #[test]
+    fn toggle_line_comment_keeps_indentation() {
+        let text = "    let x = 1;\n";
+        let buf = LineBuffer::new(text);
+        let commit = toggle_comment(&buf, &at(4), CommentStyle::Line("//"));
+        assert_eq!(apply(text, &commit), "    // let x = 1;\n");
+    }
+
+    #[test]
+    fn toggle_line_comment_skips_blank_lines() {
+        let text = "a\n\nb\n";
+        let buf = LineBuffer::new(text);
+        let commit = toggle_comment(&buf, &(0..4), CommentStyle::Line("//"));
+        assert_eq!(apply(text, &commit), "// a\n\n// b\n");
+    }
+
+    #[test]
+    fn toggle_line_comment_comments_mixed_selection() {
+        let text = "// a\nb\n";
+        let buf = LineBuffer::new(text);
+        let commit = toggle_comment(&buf, &(0..6), CommentStyle::Line("//"));
+        assert_eq!(apply(text, &commit), "// // a\n// b\n");
+    }
+
+    #[test]
+    fn toggle_block_comment_wraps_single_line() {
+        let text = "<div>\n";
+        let buf = LineBuffer::new(text);
+        let style = CommentStyle::Block {
+            open: "<!--",
+            close: "-->",
+        };
+        let commit = toggle_comment(&buf, &at(0), style);
+        assert_eq!(apply(text, &commit), "<!-- <div> -->\n");
+
+        let text = "<!-- <div> -->\n";
+        let buf = LineBuffer::new(text);
+        let commit = toggle_comment(&buf, &at(0), style);
+        assert_eq!(apply(text, &commit), "<div>\n");
+    }
+
+    #[test]
+    fn comment_style_covers_supported_languages() {
+        assert!(matches!(
+            comment_style("Rust"),
+            Some(CommentStyle::Line("//"))
+        ));
+        assert!(matches!(
+            comment_style("Python"),
+            Some(CommentStyle::Line("#"))
+        ));
+        assert!(matches!(
+            comment_style("HTML"),
+            Some(CommentStyle::Block { .. })
+        ));
+        assert!(matches!(
+            comment_style("CSS"),
+            Some(CommentStyle::Block { .. })
+        ));
+        assert!(comment_style("Plain Text").is_none());
+    }
+}

@@ -1,3 +1,4 @@
+mod editor;
 mod files;
 mod tabs;
 mod ui;
@@ -716,6 +717,16 @@ impl Render for TinytextApp {
             .on_action(cx.listener(Self::on_previous_tab))
             .on_action(cx.listener(Self::on_jump_to_tab))
             .on_action(cx.listener(Self::on_reopen_closed_tab))
+            .on_action(cx.listener(Self::on_toggle_line_comment))
+            .on_action(cx.listener(Self::on_delete_line))
+            .on_action(cx.listener(Self::on_move_line_up))
+            .on_action(cx.listener(Self::on_move_line_down))
+            .on_action(cx.listener(Self::on_copy_line_up))
+            .on_action(cx.listener(Self::on_copy_line_down))
+            .on_action(cx.listener(Self::on_insert_line_above))
+            .on_action(cx.listener(Self::on_insert_line_below))
+            .on_action(cx.listener(Self::on_select_line))
+            .on_action(cx.listener(Self::on_go_to_line))
             .child(self.render_workspace(cx))
             .child(self.render_status_bar(cx))
     }

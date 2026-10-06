@@ -1,6 +1,7 @@
 mod app;
 mod cli;
 mod file_icons;
+mod keymap;
 mod language;
 mod markdown;
 mod paths;
@@ -51,6 +52,16 @@ gpui_kit::actions!(
         NextTab,
         PreviousTab,
         ReopenClosedTab,
+        ToggleLineComment,
+        DeleteLine,
+        MoveLineUp,
+        MoveLineDown,
+        CopyLineUp,
+        CopyLineDown,
+        InsertLineAbove,
+        InsertLineBelow,
+        SelectLine,
+        GoToLine,
     ]
 );
 
@@ -123,36 +134,7 @@ fn main() {
             None
         };
 
-        cx.bind_keys([
-            KeyBinding::new("cmd-n", NewFile, None),
-            KeyBinding::new("cmd-o", OpenFile, None),
-            KeyBinding::new("cmd-shift-o", OpenFolder, None),
-            KeyBinding::new("cmd-s", SaveFile, None),
-            KeyBinding::new("cmd-shift-s", SaveFileAs, None),
-            KeyBinding::new("alt-cmd-s", SaveAll, None),
-            KeyBinding::new("cmd-w", CloseTab, None),
-            KeyBinding::new("cmd-q", Quit, None),
-            KeyBinding::new("cmd-h", Hide, None),
-            KeyBinding::new("alt-cmd-h", HideOthers, None),
-            KeyBinding::new("cmd-b", ToggleSidebar, None),
-            KeyBinding::new("cmd-,", OpenSettings, None),
-            KeyBinding::new("cmd-=", ZoomIn, None),
-            KeyBinding::new("cmd-shift-=", ZoomIn, None),
-            KeyBinding::new("cmd--", ZoomOut, None),
-            KeyBinding::new("cmd-0", ZoomReset, None),
-            KeyBinding::new("cmd-shift-t", ReopenClosedTab, None),
-            KeyBinding::new("cmd-shift-]", NextTab, None),
-            KeyBinding::new("cmd-shift-[", PreviousTab, None),
-            KeyBinding::new("cmd-1", JumpToTab(1), None),
-            KeyBinding::new("cmd-2", JumpToTab(2), None),
-            KeyBinding::new("cmd-3", JumpToTab(3), None),
-            KeyBinding::new("cmd-4", JumpToTab(4), None),
-            KeyBinding::new("cmd-5", JumpToTab(5), None),
-            KeyBinding::new("cmd-6", JumpToTab(6), None),
-            KeyBinding::new("cmd-7", JumpToTab(7), None),
-            KeyBinding::new("cmd-8", JumpToTab(8), None),
-            KeyBinding::new("cmd-9", JumpToTab(9), None),
-        ]);
+        keymap::bind_keys(cx);
         cx.on_action(|_: &Hide, cx| cx.hide());
         cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
         cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
@@ -279,6 +261,20 @@ fn app_menus() -> Vec<Menu> {
             MenuItem::separator(),
             MenuItem::action("Indent", input::Indent),
             MenuItem::action("Outdent", input::Outdent),
+            MenuItem::separator(),
+            MenuItem::action("Toggle Line Comment", ToggleLineComment),
+            MenuItem::action("Delete Line", DeleteLine),
+            MenuItem::action("Select Line", SelectLine),
+            MenuItem::separator(),
+            MenuItem::action("Move Line Up", MoveLineUp),
+            MenuItem::action("Move Line Down", MoveLineDown),
+            MenuItem::action("Copy Line Up", CopyLineUp),
+            MenuItem::action("Copy Line Down", CopyLineDown),
+            MenuItem::separator(),
+            MenuItem::action("Insert Line Above", InsertLineAbove),
+            MenuItem::action("Insert Line Below", InsertLineBelow),
+            MenuItem::separator(),
+            MenuItem::action("Go to Line…", GoToLine),
         ]),
         Menu::new("View").items([
             MenuItem::action("Toggle Sidebar", ToggleSidebar),
