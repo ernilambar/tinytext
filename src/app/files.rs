@@ -10,7 +10,7 @@ use gpui_kit::*;
 
 use crate::language::{editor_language_id, language_for};
 use crate::paths::{copy_entry, file_name, is_valid_entry_name, remap_prefix};
-use crate::{NewFile, OpenFile, OpenFolder, SaveFile};
+use crate::{NewFile, OpenFile, OpenFolder, SaveAll, SaveFile, SaveFileAs};
 
 use super::{FileClipboard, TinytextApp};
 
@@ -168,6 +168,62 @@ impl TinytextApp {
             }
         })
         .detach();
+    }
+
+    pub(super) fn on_save_file_as(
+        &mut self,
+        _: &SaveFileAs,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(ix) = self.focused_tab() else {
+            return;
+        };
+        let Some(tab) = self.tabs.get(ix) else {
+            return;
+        };
+        let id = tab.editor.entity_id();
+        let suggested = tab
+            .path
+            .as_deref()
+            .map(file_name)
+            .unwrap_or_else(|| "untitled.txt".to_string());
+        let directory = tab
+            .path
+            .as_deref()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf)
+            .or_else(|| self.workspace_root.clone())
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+
+        let receiver = cx.prompt_for_new_path(&directory, Some(suggested.as_str()));
+
+        cx.spawn_in(window, async move |this, cx| {
+            if let Ok(Ok(Some(path))) = receiver.await {
+                this.update_in(cx, |this, window, cx| {
+                    this.save_editor(id, path, window, cx)
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
+    /// Saves every edited tab that still points at a file on disk. Untitled and
+    /// deleted files are left alone, the latter so a save never recreates a file
+    /// the user removed.
+    pub(super) fn on_save_all(&mut self, _: &SaveAll, window: &mut Window, cx: &mut Context<Self>) {
+        let targets: Vec<(EntityId, PathBuf)> = self
+            .tabs
+            .iter()
+            .filter(|tab| tab.dirty)
+            .filter_map(|tab| tab.path.clone().map(|path| (tab.editor.entity_id(), path)))
+            .filter(|(_, path)| path.exists())
+            .collect();
+
+        for (id, path) in targets {
+            self.save_editor(id, path, window, cx);
+        }
     }
 
     pub(super) fn save_editor(

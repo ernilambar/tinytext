@@ -534,6 +534,8 @@ impl TinytextApp {
                 let copy_entity = menu_entity.clone();
                 let copy_path = menu_path.clone();
                 let paste_entity = menu_entity.clone();
+                let name_entity = menu_entity.clone();
+                let name_value = menu_path.clone();
                 let path_entity = menu_entity.clone();
                 let path_value = menu_path.clone();
                 let relative_entity = menu_entity.clone();
@@ -568,6 +570,12 @@ impl TinytextApp {
                     },
                 ))
                 .separator()
+                .item(
+                    PopupMenuItem::new("Copy Name").on_click(move |_, _window, cx| {
+                        name_entity
+                            .update(cx, |this, cx| this.copy_name_to_clipboard(&name_value, cx));
+                    }),
+                )
                 .item(
                     PopupMenuItem::new("Copy Path").on_click(move |_, _window, cx| {
                         path_entity

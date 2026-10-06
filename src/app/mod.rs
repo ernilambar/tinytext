@@ -264,6 +264,10 @@ impl TinytextApp {
         cx.write_to_clipboard(ClipboardItem::new_string(path.display().to_string()));
     }
 
+    pub(super) fn copy_name_to_clipboard(&self, path: &Path, cx: &mut Context<Self>) {
+        cx.write_to_clipboard(ClipboardItem::new_string(crate::paths::file_name(path)));
+    }
+
     pub(super) fn copy_relative_path(&self, path: &Path, cx: &mut Context<Self>) {
         let text = match &self.workspace_root {
             Some(root) => crate::paths::relative_display(path, root),
@@ -520,6 +524,8 @@ impl Render for TinytextApp {
             .on_action(cx.listener(Self::on_open_file))
             .on_action(cx.listener(Self::on_open_folder))
             .on_action(cx.listener(Self::on_save_file))
+            .on_action(cx.listener(Self::on_save_file_as))
+            .on_action(cx.listener(Self::on_save_all))
             .on_action(cx.listener(Self::on_close_tab))
             .on_action(cx.listener(Self::on_quit))
             .on_action(cx.listener(Self::on_toggle_sidebar))
