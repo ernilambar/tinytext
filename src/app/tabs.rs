@@ -54,6 +54,7 @@ impl TinytextApp {
             _subscriptions: vec![change_subscription, cursor_subscription],
         });
         self.active_tab = Some(self.tabs.len() - 1);
+        self.reveal_active_tab();
 
         editor.update(cx, |state, cx| state.focus(window, cx));
         let position = editor.read(cx).cursor_position();
@@ -74,8 +75,17 @@ impl TinytextApp {
         }
     }
 
+    /// Reveals the active tab in the horizontally scrolling tab strip. The
+    /// strip only scrolls when tabs overflow; with few tabs this is a no-op.
+    fn reveal_active_tab(&self) {
+        if let Some(ix) = self.active_tab {
+            self.tab_scroll.scroll_to_item(ix);
+        }
+    }
+
     pub(super) fn activate_tab(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         self.active_tab = Some(ix);
+        self.reveal_active_tab();
         if let Some(tab) = self.tabs.get(ix) {
             let editor = tab.editor.clone();
             editor.update(cx, |state, cx| state.focus(window, cx));
@@ -217,6 +227,7 @@ impl TinytextApp {
             let active = if ix < active { active - 1 } else { active };
             Some(active.min(self.tabs.len() - 1))
         };
+        self.reveal_active_tab();
 
         if let Some(tab) = self.active_tab.and_then(|ix| self.tabs.get(ix)) {
             tab.editor.update(cx, |state, cx| state.focus(window, cx));

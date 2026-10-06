@@ -24,6 +24,11 @@ use crate::{CopyFilePath, CopyRelativePath, RevealInFinder};
 use super::TinytextApp;
 
 const SIDEBAR_WIDTH: Pixels = px(240.);
+/// Bounds on a tab's width. Tabs share the strip equally and shrink together as
+/// more open, giving way no further than `TAB_MIN_WIDTH`; past that the strip
+/// scrolls horizontally instead of squeezing labels into nothing.
+const TAB_MIN_WIDTH: Pixels = px(100.);
+const TAB_MAX_WIDTH: Pixels = px(200.);
 
 /// A fixed-width slot holding a tab's status dot. The slot is always laid out,
 /// so a dot appearing or clearing never reflows the title beside it.
@@ -55,6 +60,11 @@ impl TinytextApp {
                     (tab.dirty, dirty_color)
                 };
                 Tab::new()
+                    // Grow into an equal share of the strip (basis 0 ignores the
+                    // label's natural size), so tabs shrink in step as more open.
+                    // `min_w` floors that share; the bar's `max_width` caps it.
+                    .flex_1()
+                    .min_w(TAB_MIN_WIDTH)
                     .label(tab.title.clone())
                     .prefix(status_dot(dot, dot_color).ml_2())
                     .suffix(
@@ -73,9 +83,6 @@ impl TinytextApp {
                             this.context_tab = Some(ix);
                         }),
                     )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.activate_tab(ix, window, cx);
-                    }))
             })
             .collect();
 
@@ -148,6 +155,15 @@ impl TinytextApp {
             .child(
                 TabBar::new("workspace-tabs")
                     .selected_index(active.unwrap_or(0))
+                    .max_width(TAB_MAX_WIDTH)
+                    .track_scroll(&self.tab_scroll)
+                    .menu(true)
+                    .on_click({
+                        let entity = entity.clone();
+                        move |ix, window, cx| {
+                            entity.update(cx, |this, cx| this.activate_tab(*ix, window, cx));
+                        }
+                    })
                     .children(tabs),
             )
     }

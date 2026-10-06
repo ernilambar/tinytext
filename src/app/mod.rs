@@ -50,6 +50,9 @@ pub(crate) struct TinytextApp {
     tabs: Vec<OpenTab>,
     active_tab: Option<usize>,
     context_tab: Option<usize>,
+    /// Tracks the horizontal scroll of the tab strip so the active tab can be
+    /// revealed when it would otherwise be off-screen.
+    tab_scroll: ScrollHandle,
     file_clipboard: Option<FileClipboard>,
     sidebar_visible: bool,
     cursor_line: usize,
@@ -80,6 +83,7 @@ impl TinytextApp {
             tabs: Vec::new(),
             active_tab: None,
             context_tab: None,
+            tab_scroll: ScrollHandle::new(),
             file_clipboard: None,
             sidebar_visible,
             cursor_line: 1,
