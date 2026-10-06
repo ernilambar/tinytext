@@ -110,6 +110,31 @@ sudo rm -f /usr/local/bin/tinytext
 rm -rf ~/Library/Application\ Support/net.nilambar.tinytext
 ```
 
+## Releasing
+
+`version` in `Cargo.toml` is the single source of truth. Bump it, then let cargo update
+`Cargo.lock`:
+
+```sh
+# edit version in Cargo.toml
+cargo update -p tinytext
+```
+
+Run the quality gate, then tag the release so it matches the version:
+
+```sh
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+cargo build
+
+git tag v0.1.3
+git push origin v0.1.3
+```
+
+The GitHub Actions workflow builds, signs, and publishes `Tinytext-macos-arm64.zip` to a
+GitHub Release.
+
 ## Contributing
 
 Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) to
