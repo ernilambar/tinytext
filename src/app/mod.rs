@@ -18,7 +18,10 @@ use crate::settings::{
     DEFAULT_FONT_WEIGHT, EditorSettings, Settings, font_family_issue, load_settings, settings_path,
 };
 use crate::update::{INSTALL_COMMAND, is_newer, latest_version};
-use crate::{About, CheckForUpdates, InstallCli, OpenSettings, Quit, ToggleSidebar};
+use crate::{
+    About, CheckForUpdates, CopyFilePath, InstallCli, OpenSettings, Quit, RevealInFinder,
+    ToggleSidebar,
+};
 
 struct OpenTab {
     path: Option<PathBuf>,
@@ -192,6 +195,28 @@ impl TinytextApp {
         cx: &mut Context<Self>,
     ) {
         self.toggle_sidebar(cx);
+    }
+
+    fn on_reveal_in_finder(
+        &mut self,
+        _: &RevealInFinder,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(path) = self.active().and_then(|tab| tab.path.as_deref()) {
+            cx.reveal_path(path);
+        }
+    }
+
+    fn on_copy_file_path(
+        &mut self,
+        _: &CopyFilePath,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(path) = self.active().and_then(|tab| tab.path.as_deref()) {
+            cx.write_to_clipboard(ClipboardItem::new_string(path.display().to_string()));
+        }
     }
 
     fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
@@ -449,6 +474,8 @@ impl Render for TinytextApp {
             .on_action(cx.listener(Self::on_check_for_updates))
             .on_action(cx.listener(Self::on_about))
             .on_action(cx.listener(Self::on_open_settings))
+            .on_action(cx.listener(Self::on_reveal_in_finder))
+            .on_action(cx.listener(Self::on_copy_file_path))
             .child(self.render_workspace(cx))
             .child(self.render_status_bar(cx))
     }

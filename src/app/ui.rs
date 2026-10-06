@@ -5,7 +5,7 @@ use gpui_kit::component::{
     ActiveTheme as _, Icon, IconName, Sizable as _, Size,
     badge::Badge,
     button::{Button, ButtonVariants as _},
-    input::Editor,
+    input::{self, Editor},
     list::ListItem,
     menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem},
     resizable::{h_resizable, resizable_panel},
@@ -19,6 +19,7 @@ use gpui_kit::*;
 use crate::file_icons::{file_icon, folder_icon};
 use crate::language::{LANGUAGES, editor_language_id};
 use crate::paths::{file_name, read_dir};
+use crate::{CopyFilePath, RevealInFinder};
 
 use super::TinytextApp;
 
@@ -278,26 +279,54 @@ impl TinytextApp {
 
     pub(super) fn render_editor(&self, cx: &mut Context<Self>) -> AnyElement {
         match self.active() {
-            Some(tab) => div()
-                .size_full()
-                .bg(cx.theme().background)
-                .child(
-                    Editor::new(&tab.editor)
-                        .appearance(false)
-                        .bordered(false)
-                        .when_some(
-                            self.settings.editor.font_family.clone(),
-                            |editor, family| editor.font_family(family),
-                        )
-                        .when_some(self.settings.editor.font_size(), |editor, size| {
-                            editor.text_size(px(size))
-                        })
-                        .when_some(self.settings.editor.font_weight(), |editor, weight| {
-                            editor.font_weight(FontWeight::from(weight))
-                        })
-                        .h_full(),
-                )
-                .into_any_element(),
+            Some(tab) => {
+                let editor_state = tab.editor.clone();
+                let has_path = tab.path.is_some();
+                div()
+                    .size_full()
+                    .bg(cx.theme().background)
+                    .child(
+                        Editor::new(&tab.editor)
+                            .appearance(false)
+                            .bordered(false)
+                            .when_some(
+                                self.settings.editor.font_family.clone(),
+                                |editor, family| editor.font_family(family),
+                            )
+                            .when_some(self.settings.editor.font_size(), |editor, size| {
+                                editor.text_size(px(size))
+                            })
+                            .when_some(self.settings.editor.font_weight(), |editor, weight| {
+                                editor.font_weight(FontWeight::from(weight))
+                            })
+                            .context_menu(move |menu, _, cx| {
+                                let has_selection =
+                                    !editor_state.read(cx).selected_range().is_empty();
+                                menu.menu_with_disabled("Cut", !has_selection, Box::new(input::Cut))
+                                    .menu_with_disabled(
+                                        "Copy",
+                                        !has_selection,
+                                        Box::new(input::Copy),
+                                    )
+                                    .menu("Paste", Box::new(input::Paste))
+                                    .separator()
+                                    .menu("Select All", Box::new(input::SelectAll))
+                                    .separator()
+                                    .menu_with_disabled(
+                                        "Reveal in Finder",
+                                        !has_path,
+                                        Box::new(RevealInFinder),
+                                    )
+                                    .menu_with_disabled(
+                                        "Copy File Path",
+                                        !has_path,
+                                        Box::new(CopyFilePath),
+                                    )
+                            })
+                            .h_full(),
+                    )
+                    .into_any_element()
+            }
             None => div()
                 .flex()
                 .size_full()

@@ -36,6 +36,8 @@ gpui_kit::actions!(
         CheckForUpdates,
         About,
         OpenSettings,
+        RevealInFinder,
+        CopyFilePath,
     ]
 );
 
