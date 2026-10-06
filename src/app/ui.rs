@@ -563,8 +563,7 @@ impl TinytextApp {
                 .size_full()
                 .items_center()
                 .justify_center()
-                .text_color(cx.theme().muted_foreground)
-                .child("No file open")
+                .child(super::logo(128.).grayscale(true).opacity(0.5))
                 .into_any_element(),
         }
     }

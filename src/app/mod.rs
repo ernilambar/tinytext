@@ -4,7 +4,7 @@ mod ui;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use gpui_kit::base::StyledExt as _;
 use gpui_kit::component::{
@@ -476,7 +476,7 @@ impl TinytextApp {
                         .w_full()
                         .items_center()
                         .gap_2()
-                        .child(about_icon())
+                        .child(logo(96.))
                         .child(
                             div()
                                 .text_lg()
@@ -508,13 +508,21 @@ impl TinytextApp {
     }
 }
 
-fn about_icon() -> impl IntoElement {
-    img(Arc::new(Image::from_bytes(
-        ImageFormat::Png,
-        include_bytes!("../../assets/icon.png").to_vec(),
-    )))
-    .w(px(96.))
-    .h(px(96.))
+/// The Tinytext logo image, decoded once and reused across renders.
+fn logo_image() -> Arc<Image> {
+    static LOGO: OnceLock<Arc<Image>> = OnceLock::new();
+    LOGO.get_or_init(|| {
+        Arc::new(Image::from_bytes(
+            ImageFormat::Png,
+            include_bytes!("../../assets/icon.png").to_vec(),
+        ))
+    })
+    .clone()
+}
+
+/// The app logo rendered at the given edge length in pixels.
+pub(super) fn logo(size: f32) -> Img {
+    img(logo_image()).w(px(size)).h(px(size))
 }
 
 impl Render for TinytextApp {
