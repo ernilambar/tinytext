@@ -544,6 +544,7 @@ impl Render for TinytextApp {
             .on_action(cx.listener(Self::on_new_file))
             .on_action(cx.listener(Self::on_open_file))
             .on_action(cx.listener(Self::on_open_folder))
+            .on_action(cx.listener(Self::on_close_folder))
             .on_action(cx.listener(Self::on_save_file))
             .on_action(cx.listener(Self::on_save_file_as))
             .on_action(cx.listener(Self::on_save_all))

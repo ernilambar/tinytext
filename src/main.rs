@@ -25,6 +25,7 @@ gpui_kit::actions!(
         NewFile,
         OpenFile,
         OpenFolder,
+        CloseFolder,
         SaveFile,
         SaveFileAs,
         SaveAll,
@@ -114,6 +115,7 @@ fn main() {
         cx.bind_keys([
             KeyBinding::new("cmd-n", NewFile, None),
             KeyBinding::new("cmd-o", OpenFile, None),
+            KeyBinding::new("cmd-shift-o", OpenFolder, None),
             KeyBinding::new("cmd-s", SaveFile, None),
             KeyBinding::new("cmd-shift-s", SaveFileAs, None),
             KeyBinding::new("alt-cmd-s", SaveAll, None),
@@ -204,6 +206,7 @@ fn app_menus() -> Vec<Menu> {
             MenuItem::action("New File", NewFile),
             MenuItem::action("Open…", OpenFile),
             MenuItem::action("Open Folder…", OpenFolder),
+            MenuItem::action("Close Folder", CloseFolder),
             MenuItem::separator(),
             MenuItem::action("Save", SaveFile),
             MenuItem::action("Save As…", SaveFileAs),

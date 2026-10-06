@@ -18,7 +18,7 @@ use gpui_kit::*;
 use crate::file_icons::{file_icon, folder_icon};
 use crate::language::{LANGUAGES, editor_language_id};
 use crate::paths::{file_name, read_dir};
-use crate::{CopyFilePath, CopyRelativePath, RevealInFinder};
+use crate::{CopyFilePath, CopyRelativePath, OpenFolder, RevealInFinder};
 
 use super::TinytextApp;
 
@@ -353,6 +353,8 @@ impl TinytextApp {
                         let relative_value = target.clone();
                         let reveal_entity = header_entity.clone();
                         let reveal_path = target;
+                        let open_folder_entity = header_entity.clone();
+                        let close_folder_entity = header_entity.clone();
 
                         menu.item(
                             PopupMenuItem::new("New File…").on_click(move |_, window, cx| {
@@ -392,14 +394,24 @@ impl TinytextApp {
                             },
                         ))
                         .separator()
+                        .item(PopupMenuItem::new("Reveal in Finder").on_click(
+                            move |_, _window, cx| {
+                                reveal_entity
+                                    .update(cx, |this, cx| this.reveal_in_finder(&reveal_path, cx));
+                            },
+                        ))
+                        .separator()
                         .item(
-                            PopupMenuItem::new("Reveal in Finder").on_click(
-                                move |_, _window, cx| {
-                                    reveal_entity.update(cx, |this, cx| {
-                                        this.reveal_in_finder(&reveal_path, cx)
-                                    });
-                                },
-                            ),
+                            PopupMenuItem::new("Open Folder…").on_click(move |_, window, cx| {
+                                open_folder_entity.update(cx, |this, cx| {
+                                    this.on_open_folder(&OpenFolder, window, cx)
+                                });
+                            }),
+                        )
+                        .item(
+                            PopupMenuItem::new("Close Folder").on_click(move |_, _window, cx| {
+                                close_folder_entity.update(cx, |this, cx| this.close_folder(cx));
+                            }),
                         )
                     }),
             )

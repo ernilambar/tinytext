@@ -10,7 +10,7 @@ use gpui_kit::*;
 
 use crate::language::{editor_language_id, language_for};
 use crate::paths::{copy_entry, duplicate_name, file_name, is_valid_entry_name, remap_prefix};
-use crate::{NewFile, OpenFile, OpenFolder, SaveAll, SaveFile, SaveFileAs};
+use crate::{CloseFolder, NewFile, OpenFile, OpenFolder, SaveAll, SaveFile, SaveFileAs};
 
 use super::{FileClipboard, TinytextApp};
 
@@ -130,6 +130,25 @@ impl TinytextApp {
         self.expanded.insert(path);
         self.selected_path = None;
         self.sidebar_visible = true;
+        self.save_session();
+        cx.notify();
+    }
+
+    pub(super) fn on_close_folder(
+        &mut self,
+        _: &CloseFolder,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_folder(cx);
+    }
+
+    /// Drops the workspace root and its tree state. Open tabs stay open.
+    pub(super) fn close_folder(&mut self, cx: &mut Context<Self>) {
+        self.workspace_root = None;
+        self.expanded.clear();
+        self.selected_path = None;
+        self.sidebar_visible = false;
         self.save_session();
         cx.notify();
     }
