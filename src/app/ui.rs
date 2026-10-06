@@ -30,14 +30,22 @@ const SIDEBAR_WIDTH: Pixels = px(240.);
 const TAB_MIN_WIDTH: Pixels = px(100.);
 const TAB_MAX_WIDTH: Pixels = px(200.);
 
-/// A fixed-width slot holding a tab's status dot. The slot is always laid out,
-/// so a dot appearing or clearing never reflows the title beside it.
+/// Group name shared by every tab, so its close button can react to hover.
+const TAB_GROUP: &str = "tab";
+
+/// A tab's status dot, drawn in the close button's slot and hidden on hover so
+/// the button shows through.
 fn status_dot(visible: bool, color: Hsla) -> Div {
     div()
-        .size(px(6.))
-        .flex_none()
-        .rounded_full()
-        .when(visible, |this| this.bg(color))
+        .absolute()
+        .inset_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .group_hover(TAB_GROUP, |style| style.invisible())
+        .when(visible, |this| {
+            this.child(div().size(px(6.)).rounded_full().bg(color))
+        })
 }
 
 impl TinytextApp {
@@ -65,17 +73,30 @@ impl TinytextApp {
                     // `min_w` floors that share; the bar's `max_width` caps it.
                     .flex_1()
                     .min_w(TAB_MIN_WIDTH)
+                    .group(TAB_GROUP)
+                    .text_size(px(12.))
                     .label(tab.title.clone())
-                    .prefix(status_dot(dot, dot_color).ml_2())
                     .suffix(
-                        Button::new(("close-tab", ix))
-                            .xsmall()
-                            .ghost()
-                            .icon(IconName::Close)
-                            .on_click(move |_, window, cx| {
-                                cx.stop_propagation();
-                                close_entity.update(cx, |this, cx| this.close_tab(ix, window, cx));
-                            }),
+                        div()
+                            .relative()
+                            .child(
+                                div()
+                                    .invisible()
+                                    .group_hover(TAB_GROUP, |style| style.visible())
+                                    .child(
+                                        Button::new(("close-tab", ix))
+                                            .xsmall()
+                                            .ghost()
+                                            .icon(IconName::Close)
+                                            .on_click(move |_, window, cx| {
+                                                cx.stop_propagation();
+                                                close_entity.update(cx, |this, cx| {
+                                                    this.close_tab(ix, window, cx)
+                                                });
+                                            }),
+                                    ),
+                            )
+                            .child(status_dot(dot, dot_color)),
                     )
                     .on_mouse_down(
                         MouseButton::Right,
