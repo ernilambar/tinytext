@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use gpui_kit::base::StyledExt as _;
+use gpui_kit::base::{InteractiveElementExt as _, StyledExt as _};
 use gpui_kit::component::{
     ActiveTheme as _, Icon, IconName, Sizable as _, Size,
     badge::Badge,
@@ -11,7 +11,6 @@ use gpui_kit::component::{
     resizable::{h_resizable, resizable_panel},
     scroll::ScrollableElement as _,
     status_bar::StatusBar,
-    tab::{Tab, TabBar},
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -29,6 +28,11 @@ const SIDEBAR_WIDTH: Pixels = px(240.);
 /// scrolls horizontally instead of squeezing labels into nothing.
 const TAB_MIN_WIDTH: Pixels = px(100.);
 const TAB_MAX_WIDTH: Pixels = px(200.);
+
+const TAB_HEIGHT: Pixels = px(32.);
+const TAB_FONT_SIZE: Pixels = px(12.);
+/// Thickness of the accent line along the active tab's top edge.
+const TAB_ACCENT_HEIGHT: Pixels = px(2.);
 
 /// Group name shared by every tab, so its close button can react to hover.
 const TAB_GROUP: &str = "tab";
@@ -52,33 +56,82 @@ impl TinytextApp {
     pub(super) fn render_tab_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = cx.entity();
         let active = self.active_tab;
-        let dirty_color = cx.theme().foreground;
-        let deleted_color = cx.theme().red;
+        let theme = cx.theme();
+        let dirty_color = theme.foreground;
+        let deleted_color = theme.red;
+        let border_color = theme.border;
+        let bar_bg = theme.tab_bar;
+        let active_bg = theme.tab_active;
+        // The theme's `border` and `secondary_hover` match the bar's own colour,
+        // so separators take the editor background and hover lifts the bar.
+        let separator_color = theme.background;
+        let hover_bg = bar_bg.blend(theme.foreground.opacity(0.06));
+        let fg = theme.tab_foreground;
+        let active_fg = theme.tab_active_foreground;
+        let accent = theme.blue;
 
-        let tabs: Vec<Tab> = self
+        let tabs: Vec<Stateful<Div>> = self
             .tabs
             .iter()
             .enumerate()
             .map(|(ix, tab)| {
                 let close_entity = entity.clone();
+                let selected = active == Some(ix);
                 let deleted = tab.path.as_deref().is_some_and(|path| !path.exists());
                 let (dot, dot_color) = if deleted {
                     (true, deleted_color)
                 } else {
                     (tab.dirty, dirty_color)
                 };
-                Tab::new()
+                div()
+                    .id(("tab", ix))
+                    .group(TAB_GROUP)
+                    .relative()
+                    .h_flex()
                     // Grow into an equal share of the strip (basis 0 ignores the
-                    // label's natural size), so tabs shrink in step as more open.
-                    // `min_w` floors that share; the bar's `max_width` caps it.
+                    // title's natural size), so tabs shrink in step as more open.
+                    // `min_w` floors that share; past it the strip scrolls.
                     .flex_1()
                     .min_w(TAB_MIN_WIDTH)
-                    .group(TAB_GROUP)
-                    .text_size(px(12.))
-                    .label(tab.title.clone())
-                    .suffix(
+                    .max_w(TAB_MAX_WIDTH)
+                    .h(TAB_HEIGHT)
+                    .pl_3()
+                    .pr_1()
+                    .gap_1()
+                    .text_size(TAB_FONT_SIZE)
+                    .border_r_1()
+                    .border_color(separator_color)
+                    .map(|this| {
+                        if selected {
+                            this.bg(active_bg).text_color(active_fg).child(
+                                div()
+                                    .absolute()
+                                    .top_0()
+                                    .left_0()
+                                    .right_0()
+                                    .h(TAB_ACCENT_HEIGHT)
+                                    .bg(accent),
+                            )
+                        } else {
+                            this.bg(bar_bg)
+                                .border_b_1()
+                                .text_color(fg)
+                                .hover(|style| style.bg(hover_bg).text_color(active_fg))
+                        }
+                    })
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_ellipsis()
+                            .child(tab.title.clone()),
+                    )
+                    .child(
                         div()
                             .relative()
+                            .flex_none()
                             .child(
                                 div()
                                     .invisible()
@@ -98,6 +151,9 @@ impl TinytextApp {
                             )
                             .child(status_dot(dot, dot_color)),
                     )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.activate_tab(ix, window, cx);
+                    }))
                     .on_mouse_down(
                         MouseButton::Right,
                         cx.listener(move |this, _, _, _cx| {
@@ -107,12 +163,15 @@ impl TinytextApp {
             })
             .collect();
 
+        let titles: Vec<SharedString> = self.tabs.iter().map(|tab| tab.title.clone()).collect();
+        let overflow_entity = entity.clone();
         let menu_entity = entity.clone();
         div()
             .id("workspace-tab-bar")
             .flex_none()
-            .border_b_1()
-            .border_color(cx.theme().border)
+            .relative()
+            .h_flex()
+            .bg(bar_bg)
             .capture_any_mouse_down(cx.listener(|this, event: &MouseDownEvent, _, _cx| {
                 if event.button == MouseButton::Right {
                     this.context_tab = None;
@@ -173,19 +232,53 @@ impl TinytextApp {
                         }),
                 )
             })
+            // The bar's bottom edge, painted beneath the tabs. Inactive tabs draw
+            // their own; the active tab covers it to blend into the editor.
             .child(
-                TabBar::new("workspace-tabs")
-                    .selected_index(active.unwrap_or(0))
-                    .max_width(TAB_MAX_WIDTH)
+                div()
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .bottom_0()
+                    .h(px(1.))
+                    .bg(border_color),
+            )
+            .child(
+                div()
+                    .id("workspace-tabs")
+                    .flex_1()
+                    .min_w_0()
+                    .h_flex()
+                    .overflow_x_scroll()
+                    .lock_scroll_axis()
                     .track_scroll(&self.tab_scroll)
-                    .menu(true)
-                    .on_click({
-                        let entity = entity.clone();
-                        move |ix, window, cx| {
-                            entity.update(cx, |this, cx| this.activate_tab(*ix, window, cx));
-                        }
-                    })
                     .children(tabs),
+            )
+            .child(
+                div().flex_none().px_1().child(
+                    Button::new("tab-overflow")
+                        .xsmall()
+                        .ghost()
+                        .dropdown_caret(true)
+                        .dropdown_menu(move |menu, _, _| {
+                            titles.iter().enumerate().fold(
+                                menu.scrollable(true),
+                                |menu, (ix, title)| {
+                                    let entity = overflow_entity.clone();
+                                    menu.item(
+                                        PopupMenuItem::new(title.clone())
+                                            .checked(active == Some(ix))
+                                            .on_click(move |_, window, cx| {
+                                                entity.update(cx, |this, cx| {
+                                                    this.activate_tab(ix, window, cx)
+                                                });
+                                            }),
+                                    )
+                                },
+                            )
+                        })
+                        .anchor(Anchor::TopRight),
+                ),
             )
     }
 
