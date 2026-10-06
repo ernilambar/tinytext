@@ -280,7 +280,6 @@ impl TinytextApp {
     pub(super) fn render_editor(&self, cx: &mut Context<Self>) -> AnyElement {
         match self.active() {
             Some(tab) => {
-                let editor_state = tab.editor.clone();
                 let has_path = tab.path.is_some();
                 div()
                     .size_full()
@@ -299,15 +298,11 @@ impl TinytextApp {
                             .when_some(self.settings.editor.font_weight(), |editor, weight| {
                                 editor.font_weight(FontWeight::from(weight))
                             })
-                            .context_menu(move |menu, _, cx| {
-                                let has_selection =
-                                    !editor_state.read(cx).selected_range().is_empty();
-                                menu.menu_with_disabled("Cut", !has_selection, Box::new(input::Cut))
-                                    .menu_with_disabled(
-                                        "Copy",
-                                        !has_selection,
-                                        Box::new(input::Copy),
-                                    )
+                            .context_menu(move |menu, _, _| {
+                                // Built while the editor state is mid-update, so it must not
+                                // read that state. Cut and Copy no-op without a selection.
+                                menu.menu("Cut", Box::new(input::Cut))
+                                    .menu("Copy", Box::new(input::Copy))
                                     .menu("Paste", Box::new(input::Paste))
                                     .separator()
                                     .menu("Select All", Box::new(input::SelectAll))
