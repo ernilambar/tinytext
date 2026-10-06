@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use gpui_kit::component::{
     WindowExt as _,
     button::ButtonVariant,
-    input::{EditorState, InputEvent},
+    input::{EditorState, InputEvent, TabSize},
 };
 use gpui_kit::*;
 
@@ -11,7 +11,7 @@ use crate::CloseTab;
 use crate::language::{editor_language_id, language_for};
 use crate::paths::file_name;
 
-use super::{OpenTab, TinytextApp};
+use super::{ClosedTab, MAX_CLOSED_TABS, OpenTab, TinytextApp};
 
 impl TinytextApp {
     pub(super) fn add_tab(
@@ -34,6 +34,12 @@ impl TinytextApp {
             EditorState::new(window, cx)
                 .language(editor_language_id(&language))
                 .default_value(content)
+                .soft_wrap(self.settings.editor.soft_wrap())
+                .show_whitespaces(self.settings.editor.show_whitespace())
+                .tab_size(TabSize {
+                    tab_size: self.settings.editor.tab_size(),
+                    hard_tabs: self.settings.editor.hard_tabs(),
+                })
         });
 
         let change_subscription = cx.subscribe(&editor, |this, editor, event: &InputEvent, cx| {
@@ -222,6 +228,16 @@ impl TinytextApp {
         else {
             return;
         };
+
+        if let Some(tab) = self.tabs.get(ix) {
+            self.closed_tabs.push(ClosedTab {
+                path: tab.path.clone(),
+                content: tab.editor.read(cx).text().to_string(),
+            });
+            if self.closed_tabs.len() > MAX_CLOSED_TABS {
+                self.closed_tabs.remove(0);
+            }
+        }
 
         self.tabs.remove(ix);
 

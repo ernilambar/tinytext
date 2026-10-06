@@ -42,8 +42,23 @@ gpui_kit::actions!(
         RevealInFinder,
         CopyFilePath,
         CopyRelativePath,
+        ZoomIn,
+        ZoomOut,
+        ZoomReset,
+        ToggleWordWrap,
+        ToggleWhitespace,
+        ToggleTheme,
+        NextTab,
+        PreviousTab,
+        ReopenClosedTab,
     ]
 );
+
+/// Jump to tab `N` (1-based) from `cmd-1`..`cmd-9`. The `actions!` macro only
+/// builds unit actions, so the index is carried here instead.
+#[derive(Clone, PartialEq, gpui_kit::Action)]
+#[action(namespace = tinytext, no_json)]
+pub struct JumpToTab(usize);
 
 fn main() {
     match parse_args(std::env::args().skip(1)) {
@@ -84,17 +99,13 @@ fn main() {
 
     application.run(move |cx| {
         gpui_kit::init(cx);
-        Theme::change(ThemeMode::Dark, None, cx);
-        // Lift the tab strip and mute inactive labels so the active tab, which
-        // merges with the editor background, is the only bright thing on the bar.
-        Theme::update(cx, |theme| {
-            theme.tab_bar = theme.secondary;
-            theme.tab_foreground = theme.muted_foreground;
-            theme.tab_active = theme.background;
-            theme.tab_active_foreground = theme.foreground;
-        });
-
         let settings = load_settings();
+        let theme_mode = settings
+            .as_ref()
+            .map(|settings| theme_mode_from(settings.ui.theme()))
+            .unwrap_or(ThemeMode::Dark);
+        apply_theme(theme_mode, None, cx);
+
         let base_weight = settings
             .as_ref()
             .map(|settings| settings.editor.font_weight().unwrap_or(DEFAULT_FONT_WEIGHT))
@@ -125,6 +136,22 @@ fn main() {
             KeyBinding::new("alt-cmd-h", HideOthers, None),
             KeyBinding::new("cmd-b", ToggleSidebar, None),
             KeyBinding::new("cmd-,", OpenSettings, None),
+            KeyBinding::new("cmd-=", ZoomIn, None),
+            KeyBinding::new("cmd-shift-=", ZoomIn, None),
+            KeyBinding::new("cmd--", ZoomOut, None),
+            KeyBinding::new("cmd-0", ZoomReset, None),
+            KeyBinding::new("cmd-shift-t", ReopenClosedTab, None),
+            KeyBinding::new("cmd-shift-]", NextTab, None),
+            KeyBinding::new("cmd-shift-[", PreviousTab, None),
+            KeyBinding::new("cmd-1", JumpToTab(1), None),
+            KeyBinding::new("cmd-2", JumpToTab(2), None),
+            KeyBinding::new("cmd-3", JumpToTab(3), None),
+            KeyBinding::new("cmd-4", JumpToTab(4), None),
+            KeyBinding::new("cmd-5", JumpToTab(5), None),
+            KeyBinding::new("cmd-6", JumpToTab(6), None),
+            KeyBinding::new("cmd-7", JumpToTab(7), None),
+            KeyBinding::new("cmd-8", JumpToTab(8), None),
+            KeyBinding::new("cmd-9", JumpToTab(9), None),
         ]);
         cx.on_action(|_: &Hide, cx| cx.hide());
         cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
@@ -184,6 +211,28 @@ fn main() {
     });
 }
 
+/// Maps the string form of `ui.theme` (kept GPUI-free in settings.rs) to a
+/// `ThemeMode`. Unknown values fall back to dark.
+pub(crate) fn theme_mode_from(theme: &str) -> ThemeMode {
+    match theme {
+        "light" => ThemeMode::Light,
+        _ => ThemeMode::Dark,
+    }
+}
+
+/// Switches the app-wide theme and re-applies the tab-strip customization:
+/// lift the tab bar and mute inactive labels so the active tab, which merges
+/// with the editor background, is the only bright thing on the strip.
+pub(crate) fn apply_theme(mode: ThemeMode, window: Option<&mut Window>, cx: &mut App) {
+    Theme::change(mode, window, cx);
+    Theme::update(cx, |theme| {
+        theme.tab_bar = theme.secondary;
+        theme.tab_foreground = theme.muted_foreground;
+        theme.tab_active = theme.background;
+        theme.tab_active_foreground = theme.foreground;
+    });
+}
+
 fn app_menus() -> Vec<Menu> {
     vec![
         Menu::new("Tinytext").items([
@@ -213,6 +262,7 @@ fn app_menus() -> Vec<Menu> {
             MenuItem::action("Save All", SaveAll),
             MenuItem::separator(),
             MenuItem::action("Close Tab", CloseTab),
+            MenuItem::action("Reopen Last Closed Tab", ReopenClosedTab),
         ]),
         Menu::new("Edit").items([
             MenuItem::os_action("Undo", input::Undo, OsAction::Undo),
@@ -230,6 +280,20 @@ fn app_menus() -> Vec<Menu> {
             MenuItem::action("Indent", input::Indent),
             MenuItem::action("Outdent", input::Outdent),
         ]),
-        Menu::new("View").items([MenuItem::action("Toggle Sidebar", ToggleSidebar)]),
+        Menu::new("View").items([
+            MenuItem::action("Toggle Sidebar", ToggleSidebar),
+            MenuItem::separator(),
+            MenuItem::action("Zoom In", ZoomIn),
+            MenuItem::action("Zoom Out", ZoomOut),
+            MenuItem::action("Actual Size", ZoomReset),
+            MenuItem::separator(),
+            MenuItem::action("Toggle Word Wrap", ToggleWordWrap),
+            MenuItem::action("Toggle Invisible Characters", ToggleWhitespace),
+            MenuItem::separator(),
+            MenuItem::action("Next Tab", NextTab),
+            MenuItem::action("Previous Tab", PreviousTab),
+            MenuItem::separator(),
+            MenuItem::action("Toggle Light/Dark Theme", ToggleTheme),
+        ]),
     ]
 }

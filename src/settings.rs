@@ -9,6 +9,11 @@ pub(crate) const MAX_FONT_SIZE: f32 = 72.;
 pub(crate) const MIN_FONT_WEIGHT: f32 = 100.;
 pub(crate) const MAX_FONT_WEIGHT: f32 = 900.;
 pub(crate) const DEFAULT_FONT_WEIGHT: f32 = 400.;
+/// Effective tab width when `editor.tab_size` is unset.
+pub(crate) const DEFAULT_TAB_SIZE: usize = 4;
+/// Theme used when `ui.theme` is unset. Kept as a plain string so settings.rs
+/// stays free of GPUI types.
+pub(crate) const DEFAULT_THEME: &str = "dark";
 
 /// Suggested when the configured family has no close match; only installed
 /// ones are shown.
@@ -35,6 +40,7 @@ const MAX_SUGGESTIONS: usize = 3;
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct Settings {
     pub(crate) editor: EditorSettings,
+    pub(crate) ui: UiSettings,
 }
 
 /// `None` keeps the theme's monospace default.
@@ -44,6 +50,10 @@ pub(crate) struct EditorSettings {
     pub(crate) font_family: Option<String>,
     pub(crate) font_size: Option<f32>,
     pub(crate) font_weight: Option<f32>,
+    pub(crate) soft_wrap: Option<bool>,
+    pub(crate) show_whitespace: Option<bool>,
+    pub(crate) tab_size: Option<usize>,
+    pub(crate) hard_tabs: Option<bool>,
 }
 
 impl EditorSettings {
@@ -55,6 +65,35 @@ impl EditorSettings {
     pub(crate) fn font_weight(&self) -> Option<f32> {
         self.font_weight
             .map(|weight| weight.clamp(MIN_FONT_WEIGHT, MAX_FONT_WEIGHT))
+    }
+
+    pub(crate) fn soft_wrap(&self) -> bool {
+        self.soft_wrap.unwrap_or(false)
+    }
+
+    pub(crate) fn show_whitespace(&self) -> bool {
+        self.show_whitespace.unwrap_or(false)
+    }
+
+    pub(crate) fn tab_size(&self) -> usize {
+        self.tab_size.unwrap_or(DEFAULT_TAB_SIZE)
+    }
+
+    pub(crate) fn hard_tabs(&self) -> bool {
+        self.hard_tabs.unwrap_or(false)
+    }
+}
+
+/// Application-level preferences (currently only the initial theme).
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct UiSettings {
+    pub(crate) theme: Option<String>,
+}
+
+impl UiSettings {
+    pub(crate) fn theme(&self) -> &str {
+        self.theme.as_deref().unwrap_or(DEFAULT_THEME)
     }
 }
 
@@ -150,6 +189,37 @@ mod tests {
             parse_settings(r#"{"editor": {}}"#).unwrap(),
             Settings::default()
         );
+    }
+
+    #[test]
+    fn parses_editor_options() {
+        let settings = parse_settings(
+            r#"{"editor": {"soft_wrap": true, "show_whitespace": true, "tab_size": 8, "hard_tabs": true}}"#,
+        )
+        .unwrap();
+
+        assert!(settings.editor.soft_wrap());
+        assert!(settings.editor.show_whitespace());
+        assert_eq!(settings.editor.tab_size(), 8);
+        assert!(settings.editor.hard_tabs());
+    }
+
+    #[test]
+    fn editor_options_default() {
+        let settings = Settings::default();
+
+        assert!(!settings.editor.soft_wrap());
+        assert!(!settings.editor.show_whitespace());
+        assert_eq!(settings.editor.tab_size(), DEFAULT_TAB_SIZE);
+        assert!(!settings.editor.hard_tabs());
+    }
+
+    #[test]
+    fn ui_theme_defaults_and_parses() {
+        assert_eq!(Settings::default().ui.theme(), DEFAULT_THEME);
+
+        let settings = parse_settings(r#"{"ui": {"theme": "light"}}"#).unwrap();
+        assert_eq!(settings.ui.theme(), "light");
     }
 
     #[test]

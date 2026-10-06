@@ -8,19 +8,25 @@ use std::sync::{Arc, OnceLock};
 
 use gpui_kit::base::StyledExt as _;
 use gpui_kit::component::{
-    ActiveTheme as _, WindowExt as _, input::EditorState, link::Link, notification::Notification,
+    ActiveTheme as _, ThemeMode, WindowExt as _,
+    input::{EditorState, TabSize},
+    link::Link,
+    notification::Notification,
 };
 use gpui_kit::*;
 
+use crate::apply_theme;
 use crate::cli::{app_bundle_path, install_cli};
 use crate::session::{SessionState, session_path};
 use crate::settings::{
-    DEFAULT_FONT_WEIGHT, EditorSettings, Settings, font_family_issue, load_settings, settings_path,
+    DEFAULT_FONT_WEIGHT, EditorSettings, MAX_FONT_SIZE, MIN_FONT_SIZE, Settings, font_family_issue,
+    load_settings, settings_path,
 };
 use crate::update::{INSTALL_COMMAND, is_newer, latest_version};
 use crate::{
-    About, CheckForUpdates, CopyFilePath, CopyRelativePath, InstallCli, OpenSettings, Quit,
-    RevealInFinder, ToggleSidebar,
+    About, CheckForUpdates, CopyFilePath, CopyRelativePath, InstallCli, JumpToTab, NextTab,
+    OpenSettings, PreviousTab, Quit, ReopenClosedTab, RevealInFinder, ToggleSidebar, ToggleTheme,
+    ToggleWhitespace, ToggleWordWrap, ZoomIn, ZoomOut, ZoomReset,
 };
 
 /// The app name shown in the window title, before the focused tab's path.
@@ -42,6 +48,17 @@ struct FileClipboard {
     cut: bool,
 }
 
+/// A tab captured on close so `ReopenClosedTab` can bring it back. Untitled
+/// tabs restore their content; file tabs are re-read from disk on reopen.
+/// Bounded by MAX_CLOSED_TABS so the stack cannot grow without limit.
+struct ClosedTab {
+    path: Option<PathBuf>,
+    content: String,
+}
+
+/// How many recently closed tabs to remember for `ReopenClosedTab`.
+const MAX_CLOSED_TABS: usize = 10;
+
 pub(crate) struct TinytextApp {
     pub(crate) focus_handle: FocusHandle,
     workspace_root: Option<PathBuf>,
@@ -54,6 +71,7 @@ pub(crate) struct TinytextApp {
     /// revealed when it would otherwise be off-screen.
     tab_scroll: ScrollHandle,
     file_clipboard: Option<FileClipboard>,
+    closed_tabs: Vec<ClosedTab>,
     sidebar_visible: bool,
     cursor_line: usize,
     cursor_col: usize,
@@ -85,6 +103,7 @@ impl TinytextApp {
             context_tab: None,
             tab_scroll: ScrollHandle::new(),
             file_clipboard: None,
+            closed_tabs: Vec::new(),
             sidebar_visible,
             cursor_line: 1,
             cursor_col: 1,
@@ -296,6 +315,126 @@ impl TinytextApp {
         cx.notify();
     }
 
+    fn on_zoom_in(&mut self, _: &ZoomIn, _window: &mut Window, cx: &mut Context<Self>) {
+        self.step_font_size(1., cx);
+    }
+
+    fn on_zoom_out(&mut self, _: &ZoomOut, _window: &mut Window, cx: &mut Context<Self>) {
+        self.step_font_size(-1., cx);
+    }
+
+    fn on_zoom_reset(&mut self, _: &ZoomReset, _window: &mut Window, cx: &mut Context<Self>) {
+        self.settings.editor.font_size = None;
+        cx.notify();
+    }
+
+    /// Shifts the editor font size by a whole-point step, clamped to the same
+    /// bounds the settings accessor enforces. Applies across every open tab
+    /// because the size is read from `self.settings` at render time.
+    fn step_font_size(&mut self, step: f32, cx: &mut Context<Self>) {
+        let base = self
+            .settings
+            .editor
+            .font_size()
+            .unwrap_or_else(|| cx.theme().mono_font_size.as_f32());
+        self.settings.editor.font_size = Some((base + step).clamp(MIN_FONT_SIZE, MAX_FONT_SIZE));
+        cx.notify();
+    }
+
+    fn on_toggle_word_wrap(
+        &mut self,
+        _: &ToggleWordWrap,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.settings.editor.soft_wrap = Some(!self.settings.editor.soft_wrap());
+        self.apply_editor_options_to_all(window, cx);
+        cx.notify();
+    }
+
+    fn on_toggle_whitespace(
+        &mut self,
+        _: &ToggleWhitespace,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.settings.editor.show_whitespace = Some(!self.settings.editor.show_whitespace());
+        self.apply_editor_options_to_all(window, cx);
+        cx.notify();
+    }
+
+    fn on_toggle_theme(&mut self, _: &ToggleTheme, window: &mut Window, cx: &mut Context<Self>) {
+        let mode = match cx.theme().mode {
+            ThemeMode::Dark => ThemeMode::Light,
+            ThemeMode::Light => ThemeMode::Dark,
+        };
+        apply_theme(mode, Some(window), cx);
+        cx.notify();
+    }
+
+    fn on_next_tab(&mut self, _: &NextTab, window: &mut Window, cx: &mut Context<Self>) {
+        self.shift_active_tab(1, window, cx);
+    }
+
+    fn on_previous_tab(&mut self, _: &PreviousTab, window: &mut Window, cx: &mut Context<Self>) {
+        self.shift_active_tab(-1, window, cx);
+    }
+
+    fn shift_active_tab(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(active) = self.active_tab else {
+            return;
+        };
+        let n = self.tabs.len();
+        if n == 0 {
+            return;
+        }
+        let next = (active as isize + delta).rem_euclid(n as isize) as usize;
+        self.activate_tab(next, window, cx);
+    }
+
+    fn on_jump_to_tab(&mut self, action: &JumpToTab, window: &mut Window, cx: &mut Context<Self>) {
+        let n = action.0;
+        if n == 0 || n > self.tabs.len() {
+            return;
+        }
+        self.activate_tab(n - 1, window, cx);
+    }
+
+    fn on_reopen_closed_tab(
+        &mut self,
+        _: &ReopenClosedTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(closed) = self.closed_tabs.pop() else {
+            return;
+        };
+        match closed.path {
+            Some(path) => self.request_open(path, window, cx),
+            None => self.add_tab(None, closed.content, window, cx),
+        }
+    }
+
+    /// Pushes the currently active settings' soft-wrap, whitespace and tab-size
+    /// onto every open editor, so a live toggle or a settings reload re-applies
+    /// without reopening any tab.
+    fn apply_editor_options_to_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let wrap = self.settings.editor.soft_wrap();
+        let whitespace = self.settings.editor.show_whitespace();
+        let tab = TabSize {
+            tab_size: self.settings.editor.tab_size(),
+            hard_tabs: self.settings.editor.hard_tabs(),
+        };
+        let editors: Vec<_> = self.tabs.iter().map(|tab| tab.editor.clone()).collect();
+        for editor in editors {
+            editor.update(cx, |state, cx| {
+                state.set_soft_wrap(wrap, window, cx);
+                state.set_show_whitespaces(whitespace, window, cx);
+                state.set_tab_size(tab, cx);
+            });
+        }
+    }
+
     fn on_install_cli(&mut self, _: &InstallCli, window: &mut Window, cx: &mut Context<Self>) {
         let Some(bundle) = app_bundle_path() else {
             window.push_notification(
@@ -398,7 +537,9 @@ impl TinytextApp {
                     font_family: Some(cx.theme().mono_font_family.to_string()),
                     font_size: Some(cx.theme().mono_font_size.as_f32()),
                     font_weight: Some(DEFAULT_FONT_WEIGHT),
+                    ..Default::default()
                 },
+                ui: Default::default(),
             };
             let written = serde_json::to_string_pretty(&starter)
                 .map_err(std::io::Error::other)
@@ -441,6 +582,13 @@ impl TinytextApp {
                     .font_weight()
                     .unwrap_or(DEFAULT_FONT_WEIGHT);
                 crate::markdown::apply_emphasis(cx, base_weight);
+                // Re-run the editor-only options and the theme on top of what
+                // was already open, so editing the settings file re-applies.
+                self.apply_editor_options_to_all(window, cx);
+                let mode = crate::theme_mode_from(self.settings.ui.theme());
+                if cx.theme().mode != mode {
+                    apply_theme(mode, Some(window), cx);
+                }
                 self.check_font_family(window, cx);
                 cx.notify();
             }
@@ -558,6 +706,16 @@ impl Render for TinytextApp {
             .on_action(cx.listener(Self::on_reveal_in_finder))
             .on_action(cx.listener(Self::on_copy_file_path))
             .on_action(cx.listener(Self::on_copy_relative_path))
+            .on_action(cx.listener(Self::on_zoom_in))
+            .on_action(cx.listener(Self::on_zoom_out))
+            .on_action(cx.listener(Self::on_zoom_reset))
+            .on_action(cx.listener(Self::on_toggle_word_wrap))
+            .on_action(cx.listener(Self::on_toggle_whitespace))
+            .on_action(cx.listener(Self::on_toggle_theme))
+            .on_action(cx.listener(Self::on_next_tab))
+            .on_action(cx.listener(Self::on_previous_tab))
+            .on_action(cx.listener(Self::on_jump_to_tab))
+            .on_action(cx.listener(Self::on_reopen_closed_tab))
             .child(self.render_workspace(cx))
             .child(self.render_status_bar(cx))
     }
