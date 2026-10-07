@@ -101,8 +101,8 @@ Maintainers only. Bump `version` in `Cargo.toml`, run `cargo build` to update
 `Cargo.lock`, and commit both. Then tag and push:
 
 ```sh
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 The Release workflow checks that the tag matches `Cargo.toml`, builds and ad-hoc signs

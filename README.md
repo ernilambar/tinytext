@@ -134,8 +134,8 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 cargo build
 
-git tag v0.1.3
-git push origin v0.1.3
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 The GitHub Actions workflow builds, signs, and publishes `Tinytext-macos-arm64.zip` to a
