@@ -4,7 +4,7 @@ A fast, lightweight text editor for macOS.
 
 ## Screenshot
 
-[Screenshot](screenshot.png)
+![Screenshot](screenshot.png)
 
 ## Features
 
