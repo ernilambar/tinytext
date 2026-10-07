@@ -28,9 +28,10 @@ use crate::{CopyFilePath, CopyRelativePath, NewFile, OpenFile, OpenFolder, Revea
 use super::TinytextApp;
 
 const SIDEBAR_WIDTH: Pixels = px(240.);
-/// Cap on a tab's width. Tabs size to their titles, long ones truncating at
-/// this cap; once they overflow the strip, it scrolls horizontally.
-const TAB_MAX_WIDTH: Pixels = px(200.);
+/// Floor on a tab's width. Tabs size to their full titles while the strip has
+/// room, shrink with an ellipsis down to this floor as it fills, and past that
+/// the strip scrolls horizontally.
+const TAB_MIN_WIDTH: Pixels = px(80.);
 
 const TAB_HEIGHT: Pixels = px(32.);
 /// Thickness of the accent line along the active tab's top edge.
@@ -97,8 +98,8 @@ impl TinytextApp {
                     .group(TAB_GROUP)
                     .relative()
                     .h_flex()
-                    .flex_none()
-                    .max_w(TAB_MAX_WIDTH)
+                    .flex_shrink(1.)
+                    .min_w(TAB_MIN_WIDTH)
                     .h(TAB_HEIGHT)
                     .px_3()
                     .gap_1()
