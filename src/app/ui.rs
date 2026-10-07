@@ -33,7 +33,6 @@ const SIDEBAR_WIDTH: Pixels = px(240.);
 const TAB_MAX_WIDTH: Pixels = px(200.);
 
 const TAB_HEIGHT: Pixels = px(32.);
-const TAB_FONT_SIZE: Pixels = px(12.);
 /// Thickness of the accent line along the active tab's top edge.
 const TAB_ACCENT_HEIGHT: Pixels = px(2.);
 /// Hover time before a tab's path tooltip appears; GPUI's default is 500ms.
@@ -65,14 +64,14 @@ impl TinytextApp {
         let dirty_color = theme.foreground;
         let deleted_color = theme.red;
         let border_color = theme.border;
-        let bar_bg = theme.tab_bar;
-        let active_bg = theme.tab_active;
-        // The theme's `border` and `secondary_hover` match the bar's own colour,
-        // so separators take the editor background and hover lifts the bar.
+        let bar_bg = theme.secondary;
+        let active_bg = theme.background;
+        // Separators take the editor background, so the active tab — which uses
+        // that same background — is the only bright edge on the strip.
         let separator_color = theme.background;
         let hover_bg = bar_bg.blend(theme.foreground.opacity(0.06));
-        let fg = theme.tab_foreground;
-        let active_fg = theme.tab_active_foreground;
+        let fg = theme.muted_foreground;
+        let active_fg = theme.foreground;
         let accent = theme.blue;
 
         let tabs: Vec<Stateful<Div>> = self
@@ -101,10 +100,11 @@ impl TinytextApp {
                     .flex_none()
                     .max_w(TAB_MAX_WIDTH)
                     .h(TAB_HEIGHT)
-                    .pl_3()
-                    .pr_1()
+                    .px_3()
                     .gap_1()
-                    .text_size(TAB_FONT_SIZE)
+                    .text_sm()
+                    // A trailing rule separates adjacent tabs; on the active tab
+                    // it matches the background and disappears.
                     .border_r_1()
                     .border_color(separator_color)
                     .map(|this| {
@@ -120,7 +120,6 @@ impl TinytextApp {
                             )
                         } else {
                             this.bg(bar_bg)
-                                .border_b_1()
                                 .text_color(fg)
                                 .hover(|style| style.bg(hover_bg).text_color(active_fg))
                         }
@@ -245,8 +244,9 @@ impl TinytextApp {
                         }),
                 )
             })
-            // The bar's bottom edge, painted beneath the tabs. Inactive tabs draw
-            // their own; the active tab covers it to blend into the editor.
+            // The bar's bottom edge, painted beneath the tabs. The active tab's
+            // opaque background covers it, so only the active tab blends into
+            // the editor below.
             .child(
                 div()
                     .absolute()

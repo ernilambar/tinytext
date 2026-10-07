@@ -116,7 +116,7 @@ fn main() {
             .as_ref()
             .map(|settings| theme_mode_from(settings.ui.theme()))
             .unwrap_or(ThemeMode::Dark);
-        apply_theme(theme_mode, None, cx);
+        Theme::change(theme_mode, None, cx);
 
         let base_weight = settings
             .as_ref()
@@ -204,19 +204,6 @@ pub(crate) fn theme_mode_from(theme: &str) -> ThemeMode {
         "light" => ThemeMode::Light,
         _ => ThemeMode::Dark,
     }
-}
-
-/// Switches the app-wide theme and re-applies the tab-strip customization:
-/// lift the tab bar and mute inactive labels so the active tab, which merges
-/// with the editor background, is the only bright thing on the strip.
-pub(crate) fn apply_theme(mode: ThemeMode, window: Option<&mut Window>, cx: &mut App) {
-    Theme::change(mode, window, cx);
-    Theme::update(cx, |theme| {
-        theme.tab_bar = theme.secondary;
-        theme.tab_foreground = theme.muted_foreground;
-        theme.tab_active = theme.background;
-        theme.tab_active_foreground = theme.foreground;
-    });
 }
 
 fn app_menus() -> Vec<Menu> {

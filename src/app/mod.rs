@@ -9,14 +9,13 @@ use std::sync::{Arc, OnceLock};
 
 use gpui_kit::base::StyledExt as _;
 use gpui_kit::component::{
-    ActiveTheme as _, ThemeMode, WindowExt as _,
+    ActiveTheme as _, Theme, ThemeMode, WindowExt as _,
     input::{EditorState, TabSize},
     link::Link,
     notification::Notification,
 };
 use gpui_kit::*;
 
-use crate::apply_theme;
 use crate::cli::{app_bundle_path, install_cli};
 use crate::paths::{DirEntry, read_dir};
 use crate::session::{SessionState, session_path};
@@ -444,7 +443,7 @@ impl TinytextApp {
             ThemeMode::Dark => ThemeMode::Light,
             ThemeMode::Light => ThemeMode::Dark,
         };
-        apply_theme(mode, Some(window), cx);
+        Theme::change(mode, Some(window), cx);
         cx.notify();
     }
 
@@ -675,7 +674,7 @@ impl TinytextApp {
                 self.apply_editor_options_to_all(window, cx);
                 let mode = crate::theme_mode_from(self.settings.ui.theme());
                 if cx.theme().mode != mode {
-                    apply_theme(mode, Some(window), cx);
+                    Theme::change(mode, Some(window), cx);
                 }
                 self.check_font_family(window, cx);
                 cx.notify();
