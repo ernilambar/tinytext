@@ -2,6 +2,10 @@
 
 A fast, lightweight text editor for macOS.
 
+## Screenshot
+
+[Screenshot](screenshot.png)
+
 ## Features
 
 - Tabs, each with its own file
