@@ -7,10 +7,12 @@ use gpui_kit::component::{
     badge::Badge,
     button::{Button, ButtonVariants as _},
     input::{self, Editor},
+    kbd::Kbd,
     list::ListItem,
     menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem},
     resizable::{h_resizable, resizable_panel},
     scroll::ScrollableElement as _,
+    spinner::Spinner,
     status_bar::StatusBar,
     tooltip::Tooltip,
 };
@@ -20,7 +22,7 @@ use gpui_kit::*;
 use crate::file_icons::{file_icon, folder_icon};
 use crate::language::{LANGUAGES, editor_language_id};
 use crate::paths::{display_path, file_name, read_dir};
-use crate::{CopyFilePath, CopyRelativePath, OpenFolder, RevealInFinder};
+use crate::{CopyFilePath, CopyRelativePath, NewFile, OpenFile, OpenFolder, RevealInFinder};
 
 use super::TinytextApp;
 
@@ -292,7 +294,11 @@ impl TinytextApp {
             )
     }
 
-    pub(super) fn render_workspace(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn render_workspace(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         if self.sidebar_visible
             && let Some(root) = self.workspace_root.clone()
         {
@@ -304,14 +310,21 @@ impl TinytextApp {
                             .size_range(px(160.)..px(480.))
                             .child(self.render_sidebar(&root, cx)),
                     )
-                    .child(resizable_panel().child(self.render_editor_panel(cx))),
+                    .child(resizable_panel().child(self.render_editor_panel(window, cx))),
             )
         } else {
-            div().flex_1().min_h_0().child(self.render_editor_panel(cx))
+            div()
+                .flex_1()
+                .min_h_0()
+                .child(self.render_editor_panel(window, cx))
         }
     }
 
-    pub(super) fn render_editor_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn render_editor_panel(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         div()
             .v_flex()
             .size_full()
@@ -319,12 +332,11 @@ impl TinytextApp {
             .when(!self.tabs.is_empty(), |this| {
                 this.child(self.render_tab_bar(cx))
             })
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .child(self.render_editor_for(self.active_tab, cx)),
-            )
+            .child(div().flex_1().min_h_0().child(self.render_editor_for(
+                self.active_tab,
+                window,
+                cx,
+            )))
     }
 
     pub(super) fn render_sidebar(&self, root: &Path, cx: &mut Context<Self>) -> impl IntoElement {
@@ -661,6 +673,7 @@ impl TinytextApp {
     pub(super) fn render_editor_for(
         &self,
         ix: Option<usize>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         match ix.and_then(|ix| self.tabs.get(ix)) {
@@ -712,13 +725,41 @@ impl TinytextApp {
                     )
                     .into_any_element()
             }
-            None => div()
-                .flex()
-                .size_full()
-                .items_center()
-                .justify_center()
-                .child(super::logo(128.).grayscale(true).opacity(0.5))
-                .into_any_element(),
+            None => {
+                let muted = cx.theme().muted_foreground;
+                let hints = [
+                    ("New File", Kbd::global_binding_for_action(&NewFile, window)),
+                    (
+                        "Open File…",
+                        Kbd::global_binding_for_action(&OpenFile, window),
+                    ),
+                    (
+                        "Open Folder…",
+                        Kbd::global_binding_for_action(&OpenFolder, window),
+                    ),
+                ];
+                div()
+                    .v_flex()
+                    .size_full()
+                    .items_center()
+                    .justify_center()
+                    .gap_8()
+                    .child(super::logo(128.).grayscale(true).opacity(0.5))
+                    .child(div().v_flex().gap_2().children(hints.into_iter().map(
+                        |(label, kbd)| {
+                            div()
+                                .h_flex()
+                                .items_center()
+                                .gap_6()
+                                .child(div().w(px(112.)).text_color(muted).child(label))
+                                .child(
+                                    kbd.map(|kbd| kbd.into_any_element())
+                                        .unwrap_or_else(|| div().into_any_element()),
+                                )
+                        },
+                    )))
+                    .into_any_element()
+            }
         }
     }
 
@@ -775,7 +816,19 @@ impl TinytextApp {
                 .into_any_element()
         };
 
-        StatusBar::new()
+        let mut status = StatusBar::new();
+        if let Some(label) = self.busy.clone() {
+            status = status.left(
+                div()
+                    .h_flex()
+                    .items_center()
+                    .gap_2()
+                    .child(Spinner::new().with_size(Size::XSmall))
+                    .child(label),
+            );
+        }
+
+        status
             .left(div().child(format!("Ln {}, Col {}", self.cursor_line, self.cursor_col)))
             .left(divider())
             .left(div().child("UTF-8"))

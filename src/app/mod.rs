@@ -73,6 +73,9 @@ pub(crate) struct TinytextApp {
     tab_scroll: ScrollHandle,
     file_clipboard: Option<FileClipboard>,
     closed_tabs: Vec<ClosedTab>,
+    /// Label for a background task in progress, shown with a spinner in the
+    /// status bar. `None` when idle.
+    busy: Option<SharedString>,
     sidebar_visible: bool,
     cursor_line: usize,
     cursor_col: usize,
@@ -105,6 +108,7 @@ impl TinytextApp {
             tab_scroll: ScrollHandle::new(),
             file_clipboard: None,
             closed_tabs: Vec::new(),
+            busy: None,
             sidebar_visible,
             cursor_line: 1,
             cursor_col: 1,
@@ -447,21 +451,28 @@ impl TinytextApp {
             return;
         };
 
+        self.busy = Some("Installing command-line tool…".into());
+        cx.notify();
+
         cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move { install_cli(&bundle) })
                 .await;
 
-            this.update_in(cx, |_this, window, cx| match result {
-                Ok(path) => window.push_notification(
-                    Notification::success(format!("Installed command at {}", path.display())),
-                    cx,
-                ),
-                Err(message) => window.push_notification(
-                    Notification::error(format!("Could not install command: {message}")),
-                    cx,
-                ),
+            this.update_in(cx, |this, window, cx| {
+                this.busy = None;
+                match result {
+                    Ok(path) => window.push_notification(
+                        Notification::success(format!("Installed command at {}", path.display())),
+                        cx,
+                    ),
+                    Err(message) => window.push_notification(
+                        Notification::error(format!("Could not install command: {message}")),
+                        cx,
+                    ),
+                }
+                cx.notify();
             })
             .ok();
         })
@@ -474,13 +485,17 @@ impl TinytextApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.busy = Some("Checking for updates…".into());
+        cx.notify();
+
         cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async { latest_version() })
                 .await;
 
-            this.update_in(cx, |_this, window, cx| {
+            this.update_in(cx, |this, window, cx| {
+                this.busy = None;
                 let current = env!("CARGO_PKG_VERSION");
                 match result {
                     Ok(latest) if is_newer(&latest, current) => {
@@ -521,6 +536,7 @@ impl TinytextApp {
                         cx,
                     ),
                 }
+                cx.notify();
             })
             .ok();
         })
@@ -727,7 +743,7 @@ impl Render for TinytextApp {
             .on_action(cx.listener(Self::on_insert_line_below))
             .on_action(cx.listener(Self::on_select_line))
             .on_action(cx.listener(Self::on_go_to_line))
-            .child(self.render_workspace(cx))
+            .child(self.render_workspace(window, cx))
             .child(self.render_status_bar(cx))
     }
 }
