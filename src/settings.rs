@@ -84,16 +84,21 @@ impl EditorSettings {
     }
 }
 
-/// Application-level preferences (currently only the initial theme).
+/// Application-level preferences.
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct UiSettings {
     pub(crate) theme: Option<String>,
+    pub(crate) tab_icons: Option<bool>,
 }
 
 impl UiSettings {
     pub(crate) fn theme(&self) -> &str {
         self.theme.as_deref().unwrap_or(DEFAULT_THEME)
+    }
+
+    pub(crate) fn tab_icons(&self) -> bool {
+        self.tab_icons.unwrap_or(true)
     }
 }
 
@@ -220,6 +225,14 @@ mod tests {
 
         let settings = parse_settings(r#"{"ui": {"theme": "light"}}"#).unwrap();
         assert_eq!(settings.ui.theme(), "light");
+    }
+
+    #[test]
+    fn ui_tab_icons_defaults_and_parses() {
+        assert!(Settings::default().ui.tab_icons());
+
+        let settings = parse_settings(r#"{"ui": {"tab_icons": false}}"#).unwrap();
+        assert!(!settings.ui.tab_icons());
     }
 
     #[test]

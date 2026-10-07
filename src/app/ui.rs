@@ -74,6 +74,7 @@ impl TinytextApp {
         let fg = theme.muted_foreground;
         let active_fg = theme.foreground;
         let accent = theme.blue;
+        let show_icons = self.settings.ui.tab_icons();
 
         let tabs: Vec<Stateful<Div>> = self
             .tabs
@@ -124,6 +125,16 @@ impl TinytextApp {
                                 .text_color(fg)
                                 .hover(|style| style.bg(hover_bg).text_color(active_fg))
                         }
+                    })
+                    .when(show_icons, |this| {
+                        // Untitled tabs have no path and fall back to the default file icon.
+                        let path = tab.path.as_deref().unwrap_or(Path::new(""));
+                        this.child(
+                            Icon::empty()
+                                .data(file_icon(path))
+                                .with_size(Size::Small)
+                                .flex_none(),
+                        )
                     })
                     .child(
                         div()
