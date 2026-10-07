@@ -36,6 +36,7 @@ gpui_kit::actions!(
         HideOthers,
         ShowAll,
         ToggleSidebar,
+        CommandPalette,
         InstallCli,
         CheckForUpdates,
         About,
@@ -272,6 +273,8 @@ fn app_menus() -> Vec<Menu> {
             MenuItem::action("Go to Line…", GoToLine),
         ]),
         Menu::new("View").items([
+            MenuItem::action("Command Palette…", CommandPalette),
+            MenuItem::separator(),
             MenuItem::action("Toggle Sidebar", ToggleSidebar),
             MenuItem::action("Refresh", Refresh),
             MenuItem::separator(),

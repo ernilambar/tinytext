@@ -12,6 +12,7 @@ A fast, lightweight text editor for macOS.
 - Syntax highlighting for Rust, TOML, JSON, Markdown, JavaScript, TypeScript, Python,
   HTML, CSS, and PHP
 - File explorer sidebar for browsing a project folder
+- Command palette (`Cmd+Shift+P`) to search and run any command
 - Reopens your tabs and folder where you left off
 - Warns before closing a file with unsaved changes
 - Cursor position, encoding, and language in the status bar
@@ -80,6 +81,7 @@ the latest release.
 | `Cmd+S` | Save |
 | `Cmd+W` | Close tab |
 | `Cmd+B` | Show or hide the sidebar |
+| `Cmd+Shift+P` | Open the command palette |
 | `Cmd+,` | Open settings |
 | `Cmd+Q` | Quit |
 

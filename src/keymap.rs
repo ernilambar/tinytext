@@ -10,11 +10,12 @@
 use gpui_kit::*;
 
 use crate::{
-    CloseFolder, CloseTab, CopyFilePath, CopyLineDown, CopyLineUp, CopyRelativePath, DeleteLine,
-    GoToLine, Hide, HideOthers, InsertLineAbove, InsertLineBelow, JumpToTab, MoveLineDown,
-    MoveLineUp, NewFile, NextTab, OpenFile, OpenFolder, OpenSettings, PreviousTab, Quit, Refresh,
-    ReopenClosedTab, RevealInFinder, SaveAll, SaveFile, SaveFileAs, SelectLine, ToggleLineComment,
-    ToggleSidebar, ToggleTheme, ToggleWhitespace, ToggleWordWrap, ZoomIn, ZoomOut, ZoomReset,
+    CloseFolder, CloseTab, CommandPalette, CopyFilePath, CopyLineDown, CopyLineUp,
+    CopyRelativePath, DeleteLine, GoToLine, Hide, HideOthers, InsertLineAbove, InsertLineBelow,
+    JumpToTab, MoveLineDown, MoveLineUp, NewFile, NextTab, OpenFile, OpenFolder, OpenSettings,
+    PreviousTab, Quit, Refresh, ReopenClosedTab, RevealInFinder, SaveAll, SaveFile, SaveFileAs,
+    SelectLine, ToggleLineComment, ToggleSidebar, ToggleTheme, ToggleWhitespace, ToggleWordWrap,
+    ZoomIn, ZoomOut, ZoomReset,
 };
 
 /// gpui-kit's editor key context. Its `CONTEXT` constant is private, so the
@@ -45,6 +46,7 @@ fn app_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("alt-cmd-c", CopyFilePath, None),
         KeyBinding::new("alt-cmd-shift-c", CopyRelativePath, None),
         KeyBinding::new("cmd-b", ToggleSidebar, None),
+        KeyBinding::new("cmd-shift-p", CommandPalette, None),
         KeyBinding::new("cmd-r", Refresh, None),
         KeyBinding::new("cmd-,", OpenSettings, None),
         KeyBinding::new("cmd-=", ZoomIn, None),
@@ -122,7 +124,7 @@ mod tests {
     fn every_binding_parses() {
         // `KeyBinding::new` panics on an invalid keystroke, so building the
         // lists is itself the assertion that every chord is well-formed.
-        assert_eq!(app_bindings().len(), 35);
+        assert_eq!(app_bindings().len(), 36);
         assert_eq!(editor_bindings().len(), 11);
     }
 
@@ -134,6 +136,9 @@ mod tests {
 
         assert!(resolve(&keymap, "cmd-n", &[])[0].ends_with("NewFile"));
         assert!(resolve(&keymap, "cmd-r", &[])[0].ends_with("Refresh"));
+        // The palette opens from anywhere, including while an editor has focus.
+        assert!(resolve(&keymap, "cmd-shift-p", &[])[0].ends_with("CommandPalette"));
+        assert!(resolve(&keymap, "cmd-shift-p", &["Input"])[0].ends_with("CommandPalette"));
         assert!(resolve(&keymap, "cmd-/", &[]).is_empty());
         assert!(resolve(&keymap, "cmd-/", &["Input"])[0].ends_with("ToggleLineComment"));
 

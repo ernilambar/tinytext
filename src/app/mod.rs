@@ -1,5 +1,6 @@
 mod editor;
 mod files;
+mod palette;
 mod tabs;
 mod ui;
 
@@ -10,6 +11,7 @@ use std::sync::{Arc, OnceLock};
 use gpui_kit::base::StyledExt as _;
 use gpui_kit::component::{
     ActiveTheme as _, Theme, ThemeMode, WindowExt as _,
+    command::CommandState,
     input::{EditorState, TabSize},
     link::Link,
     notification::Notification,
@@ -91,6 +93,10 @@ pub(crate) struct TinytextApp {
     /// Label for a background task in progress, shown with a spinner in the
     /// status bar. `None` when idle.
     busy: Option<SharedString>,
+    /// The command palette's interaction state while the overlay is open.
+    palette: Option<Entity<CommandState>>,
+    /// The focus that was active when the palette opened, restored on close.
+    palette_return_focus: Option<FocusHandle>,
     sidebar_visible: bool,
     cursor_line: usize,
     cursor_col: usize,
@@ -127,6 +133,8 @@ impl TinytextApp {
             file_clipboard: None,
             closed_tabs: Vec::new(),
             busy: None,
+            palette: None,
+            palette_return_focus: None,
             sidebar_visible,
             cursor_line: 1,
             cursor_col: 1,
@@ -768,8 +776,14 @@ impl Render for TinytextApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_window_title(window);
 
-        div()
+        let palette = self
+            .palette
+            .clone()
+            .map(|state| self.render_palette(&state, cx));
+
+        let root = div()
             .id("tinytext-root")
+            .relative()
             .v_flex()
             .size_full()
             .bg(cx.theme().background)
@@ -814,7 +828,13 @@ impl Render for TinytextApp {
             .on_action(cx.listener(Self::on_insert_line_below))
             .on_action(cx.listener(Self::on_select_line))
             .on_action(cx.listener(Self::on_go_to_line))
+            .on_action(cx.listener(Self::on_command_palette))
             .child(self.render_workspace(window, cx))
-            .child(self.render_status_bar(cx))
+            .child(self.render_status_bar(cx));
+
+        match palette {
+            Some(overlay) => root.child(overlay).into_any_element(),
+            None => root.into_any_element(),
+        }
     }
 }
