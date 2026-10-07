@@ -7,6 +7,7 @@
 | `⌘N` | `Cmd + N` | New File |
 | `⌘O` | `Cmd + O` | Open… |
 | `⌘⇧O` | `Cmd + Shift + O` | Open Folder… |
+| `⌥⌘W` | `Cmd + Option + W` | Close Folder |
 | `⌘S` | `Cmd + S` | Save |
 | `⌘⇧S` | `Cmd + Shift + S` | Save As… |
 | `⌥⌘S` | `Cmd + Option + S` | Save All |
@@ -14,6 +15,9 @@
 | `⌘⇧T` | `Cmd + Shift + T` | Reopen Closed Tab |
 | `⌘⇧]` / `⌘⇧[` | `Cmd + Shift + ]` / `Cmd + Shift + [` | Next / Previous Tab |
 | `⌘1` … `⌘9` | `Cmd + 1` … `Cmd + 9` | Jump to Tab |
+| `⌥⌘R` | `Cmd + Option + R` | Reveal in Finder |
+| `⌥⌘C` | `Cmd + Option + C` | Copy File Path |
+| `⌥⌘⇧C` | `Cmd + Option + Shift + C` | Copy Relative Path |
 
 ## Editing
 
@@ -30,7 +34,8 @@
 
 The usual macOS editing shortcuts also work: `⌘Z` / `⌘⇧Z` (undo / redo),
 `⌘X` / `⌘C` / `⌘V`, `⌘A`, `⌘F` (find and replace), word and line navigation,
-indent, and multi-cursor editing.
+indent, and multi-cursor editing. Add a cursor above or below with `⌘⌥↑` / `⌘⌥↓`
+(`Cmd + Option + Up` / `Cmd + Option + Down`).
 
 ## View & window
 
@@ -38,6 +43,8 @@ indent, and multi-cursor editing.
 | --- | --- | --- |
 | `⌘B` | `Cmd + B` | Toggle Sidebar |
 | `⌥Z` | `Option + Z` | Toggle Word Wrap |
+| `⌥⌘I` | `Cmd + Option + I` | Toggle Invisible Characters |
+| `⌥⌘T` | `Cmd + Option + T` | Toggle Light/Dark Theme |
 | `⌘=` / `⌘-` / `⌘0` | `Cmd + =` / `Cmd + -` / `Cmd + 0` | Zoom In / Zoom Out / Actual Size |
 | `⌘,` | `Cmd + ,` | Settings… |
 | `⌘H` / `⌥⌘H` | `Cmd + H` / `Cmd + Option + H` | Hide / Hide Others |

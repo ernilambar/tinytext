@@ -245,6 +245,10 @@ fn app_menus() -> Vec<Menu> {
             MenuItem::separator(),
             MenuItem::action("Close Tab", CloseTab),
             MenuItem::action("Reopen Last Closed Tab", ReopenClosedTab),
+            MenuItem::separator(),
+            MenuItem::action("Reveal in Finder", RevealInFinder),
+            MenuItem::action("Copy File Path", CopyFilePath),
+            MenuItem::action("Copy Relative Path", CopyRelativePath),
         ]),
         Menu::new("Edit").items([
             MenuItem::os_action("Undo", input::Undo, OsAction::Undo),

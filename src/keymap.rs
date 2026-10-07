@@ -10,10 +10,11 @@
 use gpui_kit::*;
 
 use crate::{
-    CloseTab, CopyLineDown, CopyLineUp, DeleteLine, GoToLine, Hide, HideOthers, InsertLineAbove,
-    InsertLineBelow, JumpToTab, MoveLineDown, MoveLineUp, NewFile, NextTab, OpenFile, OpenFolder,
-    OpenSettings, PreviousTab, Quit, ReopenClosedTab, SaveAll, SaveFile, SaveFileAs, SelectLine,
-    ToggleLineComment, ToggleSidebar, ToggleWordWrap, ZoomIn, ZoomOut, ZoomReset,
+    CloseFolder, CloseTab, CopyFilePath, CopyLineDown, CopyLineUp, CopyRelativePath, DeleteLine,
+    GoToLine, Hide, HideOthers, InsertLineAbove, InsertLineBelow, JumpToTab, MoveLineDown,
+    MoveLineUp, NewFile, NextTab, OpenFile, OpenFolder, OpenSettings, PreviousTab, Quit,
+    ReopenClosedTab, RevealInFinder, SaveAll, SaveFile, SaveFileAs, SelectLine, ToggleLineComment,
+    ToggleSidebar, ToggleTheme, ToggleWhitespace, ToggleWordWrap, ZoomIn, ZoomOut, ZoomReset,
 };
 
 /// gpui-kit's editor key context. Its `CONTEXT` constant is private, so the
@@ -32,6 +33,7 @@ fn app_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-n", NewFile, None),
         KeyBinding::new("cmd-o", OpenFile, None),
         KeyBinding::new("cmd-shift-o", OpenFolder, None),
+        KeyBinding::new("alt-cmd-w", CloseFolder, None),
         KeyBinding::new("cmd-s", SaveFile, None),
         KeyBinding::new("cmd-shift-s", SaveFileAs, None),
         KeyBinding::new("alt-cmd-s", SaveAll, None),
@@ -39,12 +41,17 @@ fn app_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-q", Quit, None),
         KeyBinding::new("cmd-h", Hide, None),
         KeyBinding::new("alt-cmd-h", HideOthers, None),
+        KeyBinding::new("alt-cmd-r", RevealInFinder, None),
+        KeyBinding::new("alt-cmd-c", CopyFilePath, None),
+        KeyBinding::new("alt-cmd-shift-c", CopyRelativePath, None),
         KeyBinding::new("cmd-b", ToggleSidebar, None),
         KeyBinding::new("cmd-,", OpenSettings, None),
         KeyBinding::new("cmd-=", ZoomIn, None),
         KeyBinding::new("cmd-shift-=", ZoomIn, None),
         KeyBinding::new("cmd--", ZoomOut, None),
         KeyBinding::new("cmd-0", ZoomReset, None),
+        KeyBinding::new("alt-cmd-i", ToggleWhitespace, None),
+        KeyBinding::new("alt-cmd-t", ToggleTheme, None),
         KeyBinding::new("cmd-shift-t", ReopenClosedTab, None),
         KeyBinding::new("cmd-shift-]", NextTab, None),
         KeyBinding::new("cmd-shift-[", PreviousTab, None),
@@ -114,7 +121,7 @@ mod tests {
     fn every_binding_parses() {
         // `KeyBinding::new` panics on an invalid keystroke, so building the
         // lists is itself the assertion that every chord is well-formed.
-        assert_eq!(app_bindings().len(), 28);
+        assert_eq!(app_bindings().len(), 34);
         assert_eq!(editor_bindings().len(), 11);
     }
 
@@ -127,6 +134,20 @@ mod tests {
         assert!(resolve(&keymap, "cmd-n", &[])[0].ends_with("NewFile"));
         assert!(resolve(&keymap, "cmd-/", &[]).is_empty());
         assert!(resolve(&keymap, "cmd-/", &["Input"])[0].ends_with("ToggleLineComment"));
+
+        // The Option+Cmd family added for view/file toggles must stay global so
+        // it also fires while an editor has focus.
+        for (keys, action) in [
+            ("alt-cmd-i", "ToggleWhitespace"),
+            ("alt-cmd-t", "ToggleTheme"),
+            ("alt-cmd-w", "CloseFolder"),
+            ("alt-cmd-r", "RevealInFinder"),
+            ("alt-cmd-c", "CopyFilePath"),
+            ("alt-cmd-shift-c", "CopyRelativePath"),
+        ] {
+            assert!(resolve(&keymap, keys, &[])[0].ends_with(action));
+            assert!(resolve(&keymap, keys, &["Input"])[0].ends_with(action));
+        }
     }
 
     #[test]
