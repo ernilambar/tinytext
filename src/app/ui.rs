@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::path::Path;
 use std::time::Duration;
 
@@ -21,7 +22,7 @@ use gpui_kit::*;
 
 use crate::file_icons::{file_icon, folder_icon};
 use crate::language::{LANGUAGES, editor_language_id};
-use crate::paths::{display_path, file_name, read_dir};
+use crate::paths::{display_path, file_name};
 use crate::{CopyFilePath, CopyRelativePath, NewFile, OpenFile, OpenFolder, RevealInFinder};
 
 use super::TinytextApp;
@@ -340,9 +341,9 @@ impl TinytextApp {
     }
 
     pub(super) fn render_sidebar(&self, root: &Path, cx: &mut Context<Self>) -> impl IntoElement {
-        let rows = self.tree_rows(root, 0, cx);
         let header_entity = cx.entity();
         let root_path = root.to_path_buf();
+        let row_count = self.visible_rows.len();
 
         div()
             .v_flex()
@@ -445,28 +446,26 @@ impl TinytextApp {
                     .flex_1()
                     .min_h_0()
                     .py_1()
-                    .overflow_scrollbar()
-                    .children(rows),
+                    .child(
+                        uniform_list(
+                            "explorer-list",
+                            row_count,
+                            cx.processor(|this, range: Range<usize>, _window, cx| {
+                                range
+                                    .map(|ix| {
+                                        let row = &this.visible_rows[ix];
+                                        let (path, depth, is_dir) =
+                                            (row.path.clone(), row.depth, row.is_dir);
+                                        this.tree_row(&path, is_dir, depth, cx)
+                                    })
+                                    .collect::<Vec<_>>()
+                            }),
+                        )
+                        .size_full()
+                        .track_scroll(&self.tree_scroll),
+                    )
+                    .vertical_scrollbar(&self.tree_scroll),
             )
-    }
-
-    pub(super) fn tree_rows(
-        &self,
-        dir: &Path,
-        depth: usize,
-        cx: &mut Context<Self>,
-    ) -> Vec<AnyElement> {
-        let mut rows = Vec::new();
-
-        for entry in read_dir(dir) {
-            let is_dir = entry.is_dir();
-            rows.push(self.tree_row(&entry, is_dir, depth, cx));
-            if is_dir && self.expanded.contains(&entry) {
-                rows.extend(self.tree_rows(&entry, depth + 1, cx));
-            }
-        }
-
-        rows
     }
 
     pub(super) fn tree_row(
@@ -528,6 +527,7 @@ impl TinytextApp {
                     } else {
                         this.expanded.insert(click_path.clone());
                     }
+                    this.rebuild_visible_rows();
                 } else if event.click_count() == 1 {
                     this.request_open(click_path.clone(), window, cx);
                 }

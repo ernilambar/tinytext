@@ -130,6 +130,7 @@ impl TinytextApp {
         self.expanded.insert(path);
         self.selected_path = None;
         self.sidebar_visible = true;
+        self.reload_tree();
         self.save_session();
         cx.notify();
     }
@@ -149,6 +150,7 @@ impl TinytextApp {
         self.expanded.clear();
         self.selected_path = None;
         self.sidebar_visible = false;
+        self.reload_tree();
         self.save_session();
         cx.notify();
     }
@@ -297,6 +299,7 @@ impl TinytextApp {
             tab.path = Some(path);
             tab.dirty = false;
         }
+        self.reload_tree();
         self.save_session();
         cx.notify();
     }
@@ -415,6 +418,7 @@ impl TinytextApp {
                     this.expanded.insert(path.clone());
                 }
                 this.selected_path = Some(path.clone());
+                this.reload_tree();
                 this.save_session();
                 if is_dir {
                     cx.notify();
@@ -549,6 +553,7 @@ impl TinytextApp {
                         }
                         let name = file_name(&destination);
                         this.selected_path = Some(destination);
+                        this.reload_tree();
                         this.save_session();
                         cx.notify();
                         window.push_notification(
@@ -683,6 +688,7 @@ impl TinytextApp {
             self.workspace_root = Some(mapped);
         }
 
+        self.reload_tree();
         self.save_session();
         cx.notify();
     }
@@ -747,6 +753,7 @@ impl TinytextApp {
                 {
                     self.selected_path = None;
                 }
+                self.reload_tree();
                 self.save_session();
                 cx.notify();
                 window.push_notification(Notification::success(format!("Deleted {name}")), cx);
@@ -809,6 +816,7 @@ impl TinytextApp {
                 } else {
                     self.expanded.insert(target_dir);
                     self.selected_path = Some(destination.clone());
+                    self.reload_tree();
                     self.save_session();
                     cx.notify();
                     window.push_notification(Notification::success(format!("Pasted {name}")), cx);

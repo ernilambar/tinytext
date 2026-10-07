@@ -3,7 +3,7 @@ mod files;
 mod tabs;
 mod ui;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
@@ -18,6 +18,7 @@ use gpui_kit::*;
 
 use crate::apply_theme;
 use crate::cli::{app_bundle_path, install_cli};
+use crate::paths::{DirEntry, read_dir};
 use crate::session::{SessionState, session_path};
 use crate::settings::{
     DEFAULT_FONT_WEIGHT, EditorSettings, MAX_FONT_SIZE, MIN_FONT_SIZE, Settings, font_family_issue,
@@ -26,8 +27,8 @@ use crate::settings::{
 use crate::update::{INSTALL_COMMAND, is_newer, latest_version};
 use crate::{
     About, CheckForUpdates, CopyFilePath, CopyRelativePath, InstallCli, JumpToTab, NextTab,
-    OpenSettings, PreviousTab, Quit, ReopenClosedTab, RevealInFinder, ToggleSidebar, ToggleTheme,
-    ToggleWhitespace, ToggleWordWrap, ZoomIn, ZoomOut, ZoomReset,
+    OpenSettings, PreviousTab, Quit, Refresh, ReopenClosedTab, RevealInFinder, ToggleSidebar,
+    ToggleTheme, ToggleWhitespace, ToggleWordWrap, ZoomIn, ZoomOut, ZoomReset,
 };
 
 /// The app name shown in the window title, before the focused tab's path.
@@ -60,11 +61,26 @@ struct ClosedTab {
 /// How many recently closed tabs to remember for `ReopenClosedTab`.
 const MAX_CLOSED_TABS: usize = 10;
 
+/// One flattened, currently-visible row of the sidebar tree.
+struct TreeRow {
+    path: PathBuf,
+    depth: usize,
+    is_dir: bool,
+}
+
 pub(crate) struct TinytextApp {
     pub(crate) focus_handle: FocusHandle,
     workspace_root: Option<PathBuf>,
     expanded: HashSet<PathBuf>,
     selected_path: Option<PathBuf>,
+    /// Directory listings for the root and every expanded folder, so rendering
+    /// the tree never touches the disk. Invalidated on filesystem changes.
+    dir_cache: HashMap<PathBuf, Vec<DirEntry>>,
+    /// The flattened, visible rows derived from `dir_cache` + `expanded`,
+    /// rebuilt only when the tree changes.
+    visible_rows: Vec<TreeRow>,
+    /// Scroll position and extent of the virtualized sidebar list.
+    tree_scroll: UniformListScrollHandle,
     tabs: Vec<OpenTab>,
     active_tab: Option<usize>,
     context_tab: Option<usize>,
@@ -97,11 +113,14 @@ impl TinytextApp {
         }
         let sidebar_visible = workspace_root.is_some();
 
-        Self {
+        let mut app = Self {
             focus_handle: cx.focus_handle(),
             workspace_root,
             expanded,
             selected_path: None,
+            dir_cache: HashMap::new(),
+            visible_rows: Vec::new(),
+            tree_scroll: UniformListScrollHandle::default(),
             tabs: Vec::new(),
             active_tab: None,
             context_tab: None,
@@ -114,7 +133,9 @@ impl TinytextApp {
             cursor_col: 1,
             settings,
             window_title: WINDOW_TITLE.to_string(),
-        }
+        };
+        app.reload_tree();
+        app
     }
 
     /// Keeps the native window title in sync with the focused tab, appending the
@@ -155,6 +176,7 @@ impl TinytextApp {
 
         self.selected_path = session.selected_path.filter(|path| path.exists());
         self.sidebar_visible = session.sidebar_visible && self.workspace_root.is_some();
+        self.reload_tree();
 
         let mut paths = session.tabs;
         paths.retain(|path| path.is_file());
@@ -231,6 +253,50 @@ impl TinytextApp {
         }
     }
 
+    /// Clears the directory cache and re-reads the workspace tree from disk.
+    /// Call after any filesystem change or when the workspace root changes.
+    pub(crate) fn reload_tree(&mut self) {
+        self.dir_cache.clear();
+        self.rebuild_visible_rows();
+    }
+
+    /// Re-flattens the visible rows, reading and caching any expanded directory
+    /// that is not cached yet. Cheap to call on every expand/collapse.
+    fn rebuild_visible_rows(&mut self) {
+        let mut rows = std::mem::take(&mut self.visible_rows);
+        rows.clear();
+        if let Some(root) = self.workspace_root.clone() {
+            self.cache_dir(&root);
+            self.collect_rows(&root, 0, &mut rows);
+        }
+        self.visible_rows = rows;
+    }
+
+    fn cache_dir(&mut self, dir: &Path) {
+        if !self.dir_cache.contains_key(dir) {
+            self.dir_cache.insert(dir.to_path_buf(), read_dir(dir));
+        }
+    }
+
+    /// Walks `dir`'s cached entries in display order, pushing a row per entry
+    /// and descending into expanded folders.
+    fn collect_rows(&mut self, dir: &Path, depth: usize, rows: &mut Vec<TreeRow>) {
+        let Some(entries) = self.dir_cache.get(dir).cloned() else {
+            return;
+        };
+        for entry in entries {
+            rows.push(TreeRow {
+                path: entry.path.clone(),
+                depth,
+                is_dir: entry.is_dir,
+            });
+            if entry.is_dir && self.expanded.contains(&entry.path) {
+                self.cache_dir(&entry.path);
+                self.collect_rows(&entry.path, depth + 1, rows);
+            }
+        }
+    }
+
     fn active(&self) -> Option<&OpenTab> {
         self.active_tab.and_then(|ix| self.tabs.get(ix))
     }
@@ -256,6 +322,11 @@ impl TinytextApp {
         cx: &mut Context<Self>,
     ) {
         self.toggle_sidebar(cx);
+    }
+
+    fn on_refresh(&mut self, _: &Refresh, _window: &mut Window, cx: &mut Context<Self>) {
+        self.reload_tree();
+        cx.notify();
     }
 
     fn on_reveal_in_finder(
@@ -716,6 +787,7 @@ impl Render for TinytextApp {
             .on_action(cx.listener(Self::on_close_tab))
             .on_action(cx.listener(Self::on_quit))
             .on_action(cx.listener(Self::on_toggle_sidebar))
+            .on_action(cx.listener(Self::on_refresh))
             .on_action(cx.listener(Self::on_install_cli))
             .on_action(cx.listener(Self::on_check_for_updates))
             .on_action(cx.listener(Self::on_about))

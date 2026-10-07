@@ -33,7 +33,15 @@ fn abbreviate_home(path: &Path, home: Option<&Path>) -> String {
     }
 }
 
-pub(crate) fn read_dir(dir: &Path) -> Vec<PathBuf> {
+/// A directory entry paired with the directory bit, so callers never have to
+/// stat the path a second time.
+#[derive(Clone)]
+pub(crate) struct DirEntry {
+    pub(crate) path: PathBuf,
+    pub(crate) is_dir: bool,
+}
+
+pub(crate) fn read_dir(dir: &Path) -> Vec<DirEntry> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
@@ -43,15 +51,17 @@ pub(crate) fn read_dir(dir: &Path) -> Vec<PathBuf> {
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
-            dirs.push(path);
+        let is_dir = entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false);
+        let info = DirEntry { path, is_dir };
+        if is_dir {
+            dirs.push(info);
         } else {
-            files.push(path);
+            files.push(info);
         }
     }
 
-    dirs.sort();
-    files.sort();
+    dirs.sort_by(|a, b| a.path.cmp(&b.path));
+    files.sort_by(|a, b| a.path.cmp(&b.path));
     dirs.extend(files);
     dirs
 }
@@ -202,7 +212,10 @@ mod tests {
         std::fs::write(root.join("b.txt"), "").unwrap();
         std::fs::write(root.join("a.txt"), "").unwrap();
 
-        let names: Vec<String> = read_dir(&root).iter().map(|path| file_name(path)).collect();
+        let names: Vec<String> = read_dir(&root)
+            .iter()
+            .map(|entry| file_name(&entry.path))
+            .collect();
         std::fs::remove_dir_all(&root).unwrap();
 
         assert_eq!(names, ["alpha", "zeta", "a.txt", "b.txt"]);

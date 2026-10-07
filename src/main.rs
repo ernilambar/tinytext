@@ -49,6 +49,7 @@ gpui_kit::actions!(
         ToggleWordWrap,
         ToggleWhitespace,
         ToggleTheme,
+        Refresh,
         NextTab,
         PreviousTab,
         ReopenClosedTab,
@@ -167,8 +168,11 @@ fn main() {
             // Re-render whenever the window is (de)activated so a file deleted
             // while the app was in the background is reflected in its tab.
             app.update(cx, |_this, cx| {
-                cx.observe_window_activation(window, |_this, _window, cx| cx.notify())
-                    .detach();
+                cx.observe_window_activation(window, |this, _window, cx| {
+                    this.reload_tree();
+                    cx.notify()
+                })
+                .detach();
             });
             let focus_handle = app.read(cx).focus_handle.clone();
             focus_handle.focus(window, cx);
@@ -282,6 +286,7 @@ fn app_menus() -> Vec<Menu> {
         ]),
         Menu::new("View").items([
             MenuItem::action("Toggle Sidebar", ToggleSidebar),
+            MenuItem::action("Refresh", Refresh),
             MenuItem::separator(),
             MenuItem::action("Zoom In", ZoomIn),
             MenuItem::action("Zoom Out", ZoomOut),

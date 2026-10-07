@@ -99,6 +99,10 @@ impl TinytextApp {
             self.cursor_line = position.line as usize + 1;
             self.cursor_col = position.character as usize + 1;
         }
+        // Switching tabs is a natural cue to pick up external filesystem
+        // changes, since the tree cache is otherwise only refreshed on
+        // activation and in-app file operations.
+        self.reload_tree();
         cx.notify();
     }
 

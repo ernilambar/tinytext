@@ -42,6 +42,7 @@ indent, and multi-cursor editing. Add a cursor above or below with `⌘⌥↑` /
 | Shortcut | Keys | Action |
 | --- | --- | --- |
 | `⌘B` | `Cmd + B` | Toggle Sidebar |
+| `⌘R` | `Cmd + R` | Refresh |
 | `⌥Z` | `Option + Z` | Toggle Word Wrap |
 | `⌥⌘I` | `Cmd + Option + I` | Toggle Invisible Characters |
 | `⌥⌘T` | `Cmd + Option + T` | Toggle Light/Dark Theme |
