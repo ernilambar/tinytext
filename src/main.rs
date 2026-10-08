@@ -163,6 +163,12 @@ fn main() {
                 Err(message) => (Default::default(), Some(message)),
             };
             let app = cx.new(|cx| TinytextApp::new(initial_folders.clone(), settings, cx));
+            // Block the red close button (and app termination) while there are
+            // unsaved edits, prompting instead.
+            let close_guard = app.clone();
+            window.on_window_should_close(cx, move |window, cx| {
+                close_guard.update(cx, |this, cx| this.handle_window_should_close(window, cx))
+            });
             // The notification layer is attached after this closure returns.
             if let Some(message) = settings_error {
                 window.defer(cx, move |window, cx| {

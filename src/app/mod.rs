@@ -110,6 +110,9 @@ pub(crate) struct TinytextApp {
     /// The window title currently applied, so it is only pushed to the platform
     /// when the focused tab changes.
     window_title: String,
+    /// Set once the user has confirmed discarding unsaved work in the quit or
+    /// window-close alert, so the follow-up close callback stops re-prompting.
+    allow_close: bool,
 }
 
 impl TinytextApp {
@@ -155,6 +158,7 @@ impl TinytextApp {
             cursor_col: 1,
             settings,
             window_title: WINDOW_TITLE.to_string(),
+            allow_close: false,
         };
         app.reload_tree();
         app
@@ -349,8 +353,12 @@ impl TinytextApp {
         self.active().map(|tab| tab.dirty).unwrap_or(false)
     }
 
-    fn on_quit(&mut self, _: &Quit, _window: &mut Window, cx: &mut Context<Self>) {
-        cx.quit();
+    fn on_quit(&mut self, _: &Quit, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.any_dirty() || self.allow_close {
+            cx.quit();
+        } else {
+            self.confirm_quit(window, cx);
+        }
     }
 
     fn on_toggle_sidebar(

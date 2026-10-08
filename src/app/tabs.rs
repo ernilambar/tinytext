@@ -225,6 +225,68 @@ impl TinytextApp {
         });
     }
 
+    /// True when any open tab has unsaved edits.
+    pub(super) fn any_dirty(&self) -> bool {
+        self.tabs.iter().any(|tab| tab.dirty)
+    }
+
+    /// Quits after confirming that unsaved edits are discarded.
+    pub(super) fn confirm_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let entity = cx.entity();
+        window.open_alert_dialog(cx, move |alert, _window, _cx| {
+            let entity = entity.clone();
+            alert
+                .confirm()
+                .title("Unsaved Changes")
+                .description("Some tabs have unsaved changes. Quit without saving?")
+                .ok_text("Quit Without Saving")
+                .ok_variant(ButtonVariant::Danger)
+                .cancel_text("Keep Editing")
+                .on_ok(move |_, _window, cx| {
+                    entity.update(cx, |this, cx| {
+                        this.allow_close = true;
+                        cx.quit();
+                    });
+                    true
+                })
+        });
+    }
+
+    /// Answers the platform's close request. When there is unsaved work it opens
+    /// the confirmation alert and refuses this close; the dialog re-closes once
+    /// the user confirms.
+    pub(crate) fn handle_window_should_close(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.allow_close || !self.any_dirty() {
+            return true;
+        }
+        self.confirm_close_window(window, cx);
+        false
+    }
+
+    /// Closes the window after confirming that unsaved edits are discarded.
+    fn confirm_close_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let entity = cx.entity();
+        window.open_alert_dialog(cx, move |alert, _window, _cx| {
+            let entity = entity.clone();
+            alert
+                .confirm()
+                .title("Unsaved Changes")
+                .description("Some tabs have unsaved changes. Close without saving?")
+                .ok_text("Close Without Saving")
+                .ok_variant(ButtonVariant::Danger)
+                .cancel_text("Keep Editing")
+                .on_ok(move |_, window, cx| {
+                    entity.update(cx, |this, _cx| this.allow_close = true);
+                    window.remove_window();
+                    true
+                })
+        });
+    }
+
     pub(super) fn remove_tab(&mut self, id: EntityId, window: &mut Window, cx: &mut Context<Self>) {
         let Some(ix) = self
             .tabs
