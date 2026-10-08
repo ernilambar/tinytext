@@ -57,8 +57,9 @@ in headless environments.
   `pub(super)`. Add a new module only once a feature is large enough to justify the
   boundary.
 - `session.json` (app-written state) and `settings.json` (user-authored preferences) both
-  live in `paths::support_dir()`. The app never rewrites `settings.json`; it only creates
-  a starter file. Group new settings keys by area (`editor.*`, `ui.*`).
+  live in `paths::support_dir()`. The app writes `settings.json` only to create a starter
+  file or to record the `ui.theme` choice from the theme toggle; it never otherwise
+  rewrites the user's preferences. Group new settings keys by area (`editor.*`, `ui.*`).
 - This project targets macOS only. Do not add cross-platform code paths.
 
 ## Releasing

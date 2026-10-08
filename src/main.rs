@@ -214,6 +214,15 @@ pub(crate) fn theme_mode_from(theme: &str) -> ThemeMode {
     }
 }
 
+/// The value written back to `ui.theme` for a mode; the inverse of
+/// `theme_mode_from`.
+pub(crate) fn theme_name(mode: ThemeMode) -> &'static str {
+    match mode {
+        ThemeMode::Light => "light",
+        ThemeMode::Dark => "dark",
+    }
+}
+
 fn app_menus() -> Vec<Menu> {
     vec![
         Menu::new("Tinytext").items([

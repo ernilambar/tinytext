@@ -23,7 +23,7 @@ use crate::paths::{DirEntry, read_dir};
 use crate::session::{SessionState, session_path};
 use crate::settings::{
     DEFAULT_FONT_WEIGHT, EditorSettings, MAX_FONT_SIZE, MIN_FONT_SIZE, Settings, font_family_issue,
-    load_settings, settings_path,
+    load_settings, save_theme, settings_path,
 };
 use crate::update::{INSTALL_COMMAND, is_newer, latest_version};
 use crate::{
@@ -477,6 +477,13 @@ impl TinytextApp {
             ThemeMode::Light => ThemeMode::Dark,
         };
         Theme::change(mode, Some(window), cx);
+        self.settings.ui.theme = Some(crate::theme_name(mode).to_string());
+        if let Err(message) = save_theme(self.settings.ui.theme()) {
+            window.push_notification(
+                Notification::error(format!("Could not save theme: {message}")),
+                cx,
+            );
+        }
         cx.notify();
     }
 

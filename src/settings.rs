@@ -126,6 +126,52 @@ pub(crate) fn load_settings() -> Result<Settings, String> {
     parse_settings(&data).map_err(|error| format!("Invalid settings: {error}"))
 }
 
+/// Returns `data` with `ui.theme` set to `theme`, preserving every other key
+/// (and its position) so a hand-authored file keeps its own omissions.
+fn with_theme(data: &str, theme: &str) -> Result<String, String> {
+    let mut root: serde_json::Value =
+        serde_json::from_str(data).map_err(|error| format!("Invalid settings: {error}"))?;
+    let object = root
+        .as_object_mut()
+        .ok_or_else(|| "Settings must be a JSON object".to_string())?;
+    let ui = object
+        .entry("ui")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(|| "The `ui` section must be a JSON object".to_string())?;
+    ui.insert(
+        "theme".to_string(),
+        serde_json::Value::String(theme.to_string()),
+    );
+
+    serde_json::to_string_pretty(&root).map_err(|error| error.to_string())
+}
+
+/// Records the chosen theme in `ui.theme`, creating the file when it is missing.
+/// Only that key is touched; the rest of the user's file is left as authored.
+pub(crate) fn save_theme(theme: &str) -> Result<(), String> {
+    let Some(path) = settings_path() else {
+        return Err("Could not locate the support directory".to_string());
+    };
+
+    let data = match std::fs::read_to_string(&path) {
+        Ok(data) => data,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => "{}".to_string(),
+        Err(error) => return Err(format!("Could not read settings: {error}")),
+    };
+    let json = with_theme(&data, theme)?;
+
+    if let Some(parent) = path.parent()
+        && std::fs::create_dir_all(parent).is_err()
+    {
+        return Err("Could not create the settings directory".to_string());
+    }
+
+    let temp = path.with_file_name("settings.json.tmp");
+    std::fs::write(&temp, json + "\n").map_err(|error| error.to_string())?;
+    std::fs::rename(&temp, &path).map_err(|error| error.to_string())
+}
+
 /// Explains why `family` will not render, with installed names to use instead.
 pub(crate) fn font_family_issue(family: &str, installed: &[String]) -> Option<String> {
     if installed.iter().any(|name| name == family) {
@@ -233,6 +279,38 @@ mod tests {
 
         let settings = parse_settings(r#"{"ui": {"tab_icons": false}}"#).unwrap();
         assert!(!settings.ui.tab_icons());
+    }
+
+    #[test]
+    fn with_theme_preserves_other_keys() {
+        let updated = with_theme(r#"{"editor": {"font_size": 15}}"#, "light").unwrap();
+        let value: serde_json::Value = serde_json::from_str(&updated).unwrap();
+
+        assert_eq!(value["ui"]["theme"], "light");
+        assert_eq!(value["editor"]["font_size"], 15);
+    }
+
+    #[test]
+    fn with_theme_adds_missing_ui_section() {
+        let updated = with_theme("{}", "light").unwrap();
+        let value: serde_json::Value = serde_json::from_str(&updated).unwrap();
+
+        assert_eq!(value["ui"]["theme"], "light");
+    }
+
+    #[test]
+    fn with_theme_replaces_existing_theme() {
+        let updated =
+            with_theme(r#"{"ui": {"theme": "dark", "tab_icons": false}}"#, "light").unwrap();
+        let value: serde_json::Value = serde_json::from_str(&updated).unwrap();
+
+        assert_eq!(value["ui"]["theme"], "light");
+        assert_eq!(value["ui"]["tab_icons"], false);
+    }
+
+    #[test]
+    fn with_theme_rejects_malformed_json() {
+        assert!(with_theme("{", "light").is_err());
     }
 
     #[test]
