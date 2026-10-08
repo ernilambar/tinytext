@@ -104,6 +104,15 @@ impl<'a> LineBuffer<'a> {
         self.starts.partition_point(|&start| start <= offset) - 1
     }
 
+    /// The line terminator the document uses, inferred from its first line
+    /// break. Falls back to `\n` for documents with no break.
+    fn line_ending(&self) -> &'static str {
+        match self.text.find('\n') {
+            Some(i) if i > 0 && self.text.as_bytes()[i - 1] == b'\r' => "\r\n",
+            _ => "\n",
+        }
+    }
+
     /// The first and last lines touched by `selection`. An empty selection
     /// touches the line under the caret.
     fn touched(&self, selection: &Range<usize>) -> (usize, usize) {
@@ -139,7 +148,12 @@ fn delete_lines(buf: &LineBuffer, selection: &Range<usize>) -> Commit {
     let (first, last) = buf.touched(selection);
     let mut range = buf.start(first)..buf.end(last);
     if range.end == buf.text.len() && !buf.has_newline(last) && range.start > 0 {
+        // Drop the break that precedes the removed line so the file does not
+        // keep a trailing blank line. The break is `\n` or `\r\n`.
         range.start -= 1;
+        if range.start > 0 && buf.text.as_bytes()[range.start - 1] == b'\r' {
+            range.start -= 1;
+        }
     }
     Commit {
         cursor: range.start,
@@ -213,13 +227,14 @@ fn duplicate_lines(buf: &LineBuffer, selection: &Range<usize>) -> Commit {
 /// Inserts an empty line above or below the selection, keeping its indentation.
 fn insert_line(buf: &LineBuffer, selection: &Range<usize>, above: bool) -> Commit {
     let (first, last) = buf.touched(selection);
+    let nl = buf.line_ending();
 
     if above {
         let at = buf.start(first);
         let indent = leading_indent(buf.lines[first]);
         return Commit {
             range: at..at,
-            replacement: format!("{indent}\n"),
+            replacement: format!("{indent}{nl}"),
             cursor: at + indent.len(),
         };
     }
@@ -230,15 +245,15 @@ fn insert_line(buf: &LineBuffer, selection: &Range<usize>, above: bool) -> Commi
         // There is already a break after the line; open a new one before it.
         Commit {
             range: at..at,
-            replacement: format!("{indent}\n"),
+            replacement: format!("{indent}{nl}"),
             cursor: at + indent.len(),
         }
     } else {
         // The line ends the file; start a fresh one after it.
         Commit {
             range: at..at,
-            replacement: format!("\n{indent}"),
-            cursor: at + 1 + indent.len(),
+            replacement: format!("{nl}{indent}"),
+            cursor: at + nl.len() + indent.len(),
         }
     }
 }
@@ -628,6 +643,13 @@ mod tests {
     }
 
     #[test]
+    fn delete_last_line_crlf_drops_the_whole_break() {
+        let text = "a\r\nb";
+        let commit = delete_lines(&LineBuffer::new(text), &at(3));
+        assert_eq!(apply(text, &commit), "a");
+    }
+
+    #[test]
     fn delete_selected_lines() {
         let text = "a\nb\nc\nd";
         let commit = delete_lines(&LineBuffer::new(text), &(2..5));
@@ -711,6 +733,38 @@ mod tests {
         let commit = insert_line(&LineBuffer::new(text), &at(2), true);
         assert_eq!(apply(text, &commit), "a\n\nb");
         assert_eq!(commit.cursor, 2);
+    }
+
+    #[test]
+    fn insert_line_below_uses_crlf() {
+        let text = "a\r\nb";
+        let commit = insert_line(&LineBuffer::new(text), &at(0), false);
+        assert_eq!(apply(text, &commit), "a\r\n\r\nb");
+        assert_eq!(commit.cursor, 3);
+    }
+
+    #[test]
+    fn insert_line_above_uses_crlf() {
+        let text = "a\r\nb";
+        let commit = insert_line(&LineBuffer::new(text), &at(3), true);
+        assert_eq!(apply(text, &commit), "a\r\n\r\nb");
+        assert_eq!(commit.cursor, 3);
+    }
+
+    #[test]
+    fn insert_line_below_at_end_of_crlf_file() {
+        let text = "a\r\nb";
+        let commit = insert_line(&LineBuffer::new(text), &at(4), false);
+        assert_eq!(apply(text, &commit), "a\r\nb\r\n");
+        assert_eq!(commit.cursor, 6);
+    }
+
+    #[test]
+    fn insert_line_below_preserves_indent_in_crlf_file() {
+        let text = "  a\r\nb";
+        let commit = insert_line(&LineBuffer::new(text), &at(2), false);
+        assert_eq!(apply(text, &commit), "  a\r\n  \r\nb");
+        assert_eq!(commit.cursor, 7);
     }
 
     #[test]
