@@ -129,6 +129,41 @@ pub(crate) fn relative_display(path: &Path, root: &Path) -> String {
         .to_string()
 }
 
+/// Why a folder cannot be added as another workspace root.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum RootConflict {
+    /// The folder is already an open root.
+    Duplicate,
+    /// The folder contains, or lives inside, an existing root.
+    Overlap,
+}
+
+/// Classifies `candidate` against the open roots: `Duplicate` when it is
+/// already a root, `Overlap` when it contains or lives inside one. Returns
+/// `None` when the folder is independent and can be added. Comparison is
+/// component-wise, so `/a/bc` never conflicts with `/a/b`.
+pub(crate) fn root_conflict(roots: &[PathBuf], candidate: &Path) -> Option<RootConflict> {
+    for root in roots {
+        if root == candidate {
+            return Some(RootConflict::Duplicate);
+        }
+        if candidate.starts_with(root) || root.starts_with(candidate) {
+            return Some(RootConflict::Overlap);
+        }
+    }
+    None
+}
+
+/// The open root that most closely contains `path`, when any. The deepest match
+/// wins, so nested roots resolve to the innermost one.
+pub(crate) fn nearest_root<'a>(roots: &'a [PathBuf], path: &Path) -> Option<&'a Path> {
+    roots
+        .iter()
+        .filter(|root| path.starts_with(root))
+        .max_by_key(|root| root.components().count())
+        .map(PathBuf::as_path)
+}
+
 /// Copies a file, or a directory tree, to `to`. Directories are created and
 /// filled recursively.
 pub(crate) fn copy_entry(from: &Path, to: &Path) -> std::io::Result<()> {
@@ -300,6 +335,45 @@ mod tests {
             relative_display(Path::new("/elsewhere/main.rs"), Path::new("/tmp/project")),
             "/elsewhere/main.rs"
         );
+    }
+
+    #[test]
+    fn root_conflict_flags_duplicates_and_overlaps() {
+        let roots = vec![PathBuf::from("/tmp/project"), PathBuf::from("/opt/other")];
+
+        assert_eq!(
+            root_conflict(&roots, Path::new("/tmp/project")),
+            Some(RootConflict::Duplicate)
+        );
+        assert_eq!(
+            root_conflict(&roots, Path::new("/tmp/project/src")),
+            Some(RootConflict::Overlap)
+        );
+        assert_eq!(
+            root_conflict(&roots, Path::new("/tmp")),
+            Some(RootConflict::Overlap)
+        );
+        assert_eq!(root_conflict(&roots, Path::new("/tmp/project-extra")), None);
+        assert_eq!(root_conflict(&roots, Path::new("/tmp/elsewhere")), None);
+        assert_eq!(root_conflict(&[], Path::new("/tmp/project")), None);
+    }
+
+    #[test]
+    fn nearest_root_picks_the_deepest_match() {
+        let roots = vec![
+            PathBuf::from("/tmp/project"),
+            PathBuf::from("/tmp/project/src"),
+        ];
+
+        assert_eq!(
+            nearest_root(&roots, Path::new("/tmp/project/src/main.rs")),
+            Some(Path::new("/tmp/project/src"))
+        );
+        assert_eq!(
+            nearest_root(&roots, Path::new("/tmp/project/docs/a.md")),
+            Some(Path::new("/tmp/project"))
+        );
+        assert_eq!(nearest_root(&roots, Path::new("/elsewhere/a.md")), None);
     }
 
     #[test]

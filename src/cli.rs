@@ -104,10 +104,10 @@ pub(crate) fn print_help() {
 A native macOS text editor built with GPUI Kit
 
 Usage:
-  tinytext [OPTIONS] [FOLDER]
+  tinytext [OPTIONS] [FOLDER]...
 
 Arguments:
-  [FOLDER]  Open the given folder in the sidebar
+  [FOLDER]...  Add the given folders to the sidebar
 
 Options:
   -h, --help     Print this help and exit
