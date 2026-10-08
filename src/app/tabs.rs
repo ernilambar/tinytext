@@ -55,6 +55,7 @@ impl TinytextApp {
             path,
             title,
             language,
+            language_override: false,
             dirty: false,
             editor: editor.clone(),
             _subscriptions: vec![change_subscription, cursor_subscription],

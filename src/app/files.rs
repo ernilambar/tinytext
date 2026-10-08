@@ -329,12 +329,14 @@ impl TinytextApp {
             .iter_mut()
             .find(|tab| tab.editor.entity_id() == id)
         {
-            let language = language_for(&path);
             tab.title = file_name(&path).into();
-            tab.editor.update(cx, |state, cx| {
-                state.set_highlighter(editor_language_id(&language), cx);
-            });
-            tab.language = language;
+            if !tab.language_override {
+                let language = language_for(&path);
+                tab.editor.update(cx, |state, cx| {
+                    state.set_highlighter(editor_language_id(&language), cx);
+                });
+                tab.language = language;
+            }
             tab.path = Some(path);
             tab.dirty = false;
         }
@@ -709,12 +711,14 @@ impl TinytextApp {
             let Some(mapped) = remap_prefix(&current, old, new) else {
                 continue;
             };
-            let language = language_for(&mapped);
             tab.title = file_name(&mapped).into();
-            tab.editor.update(cx, |state, cx| {
-                state.set_highlighter(editor_language_id(&language), cx);
-            });
-            tab.language = language;
+            if !tab.language_override {
+                let language = language_for(&mapped);
+                tab.editor.update(cx, |state, cx| {
+                    state.set_highlighter(editor_language_id(&language), cx);
+                });
+                tab.language = language;
+            }
             tab.path = Some(mapped);
         }
 

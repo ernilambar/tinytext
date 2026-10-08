@@ -791,6 +791,7 @@ impl TinytextApp {
                             if let Some(tab) = this.active_tab.and_then(|ix| this.tabs.get_mut(ix))
                             {
                                 tab.language = value.clone();
+                                tab.language_override = true;
                                 tab.editor.update(cx, |state, cx| {
                                     state.set_highlighter(editor_language_id(&value), cx);
                                 });

@@ -39,6 +39,9 @@ struct OpenTab {
     path: Option<PathBuf>,
     title: SharedString,
     language: SharedString,
+    /// True when the language was picked in the status bar, so saving or
+    /// renaming must not re-derive it from the file extension.
+    language_override: bool,
     dirty: bool,
     editor: Entity<EditorState>,
     _subscriptions: Vec<Subscription>,
