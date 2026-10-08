@@ -23,7 +23,7 @@ use crate::paths::{DirEntry, read_dir};
 use crate::session::{SessionState, session_path};
 use crate::settings::{
     DEFAULT_FONT_WEIGHT, EditorSettings, MAX_FONT_SIZE, MIN_FONT_SIZE, Settings, font_family_issue,
-    load_settings, save_theme, settings_path,
+    load_settings, save_font_size, save_show_whitespace, save_soft_wrap, save_theme, settings_path,
 };
 use crate::update::{INSTALL_COMMAND, is_newer, latest_version};
 use crate::{
@@ -423,29 +423,31 @@ impl TinytextApp {
         cx.notify();
     }
 
-    fn on_zoom_in(&mut self, _: &ZoomIn, _window: &mut Window, cx: &mut Context<Self>) {
-        self.step_font_size(1., cx);
+    fn on_zoom_in(&mut self, _: &ZoomIn, window: &mut Window, cx: &mut Context<Self>) {
+        self.step_font_size(1., window, cx);
     }
 
-    fn on_zoom_out(&mut self, _: &ZoomOut, _window: &mut Window, cx: &mut Context<Self>) {
-        self.step_font_size(-1., cx);
+    fn on_zoom_out(&mut self, _: &ZoomOut, window: &mut Window, cx: &mut Context<Self>) {
+        self.step_font_size(-1., window, cx);
     }
 
-    fn on_zoom_reset(&mut self, _: &ZoomReset, _window: &mut Window, cx: &mut Context<Self>) {
+    fn on_zoom_reset(&mut self, _: &ZoomReset, window: &mut Window, cx: &mut Context<Self>) {
         self.settings.editor.font_size = None;
+        self.after_setting_write(save_font_size(None), window, cx);
         cx.notify();
     }
 
     /// Shifts the editor font size by a whole-point step, clamped to the same
     /// bounds the settings accessor enforces. Applies across every open tab
     /// because the size is read from `self.settings` at render time.
-    fn step_font_size(&mut self, step: f32, cx: &mut Context<Self>) {
+    fn step_font_size(&mut self, step: f32, window: &mut Window, cx: &mut Context<Self>) {
         let base = self
             .settings
             .editor
             .font_size()
             .unwrap_or_else(|| cx.theme().mono_font_size.as_f32());
         self.settings.editor.font_size = Some((base + step).clamp(MIN_FONT_SIZE, MAX_FONT_SIZE));
+        self.after_setting_write(save_font_size(self.settings.editor.font_size), window, cx);
         cx.notify();
     }
 
@@ -457,6 +459,7 @@ impl TinytextApp {
     ) {
         self.settings.editor.soft_wrap = Some(!self.settings.editor.soft_wrap());
         self.apply_editor_options_to_all(window, cx);
+        self.after_setting_write(save_soft_wrap(self.settings.editor.soft_wrap()), window, cx);
         cx.notify();
     }
 
@@ -468,6 +471,11 @@ impl TinytextApp {
     ) {
         self.settings.editor.show_whitespace = Some(!self.settings.editor.show_whitespace());
         self.apply_editor_options_to_all(window, cx);
+        self.after_setting_write(
+            save_show_whitespace(self.settings.editor.show_whitespace()),
+            window,
+            cx,
+        );
         cx.notify();
     }
 
@@ -478,13 +486,51 @@ impl TinytextApp {
         };
         Theme::change(mode, Some(window), cx);
         self.settings.ui.theme = Some(crate::theme_name(mode).to_string());
-        if let Err(message) = save_theme(self.settings.ui.theme()) {
-            window.push_notification(
-                Notification::error(format!("Could not save theme: {message}")),
-                cx,
-            );
-        }
+        self.after_setting_write(save_theme(self.settings.ui.theme()), window, cx);
         cx.notify();
+    }
+
+    /// Applies the outcome of a settings write: on success, mirrors the new file
+    /// contents into an open, unmodified settings tab; on failure, reports it
+    /// without undoing the change, which has already been applied in memory.
+    fn after_setting_write(
+        &mut self,
+        result: Result<String, String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match result {
+            Ok(contents) => self.refresh_settings_tab(&contents, window, cx),
+            Err(message) => window.push_notification(
+                Notification::error(format!("Could not save settings: {message}")),
+                cx,
+            ),
+        }
+    }
+
+    /// Reflects a programmatic settings write in the open settings tab, if one
+    /// exists. A tab with unsaved edits is left untouched so the write cannot
+    /// discard the user's work.
+    fn refresh_settings_tab(
+        &mut self,
+        contents: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(path) = settings_path() else {
+            return;
+        };
+        let Some(editor) = self
+            .tabs
+            .iter()
+            .find(|tab| tab.path.as_deref() == Some(path.as_path()) && !tab.dirty)
+            .map(|tab| tab.editor.clone())
+        else {
+            return;
+        };
+        // `set_value` clears the undo history and emits no change event, so the
+        // refreshed tab is not marked dirty by this reload.
+        editor.update(cx, |state, cx| state.set_value(contents, window, cx));
     }
 
     fn on_next_tab(&mut self, _: &NextTab, window: &mut Window, cx: &mut Context<Self>) {

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -126,40 +126,59 @@ pub(crate) fn load_settings() -> Result<Settings, String> {
     parse_settings(&data).map_err(|error| format!("Invalid settings: {error}"))
 }
 
-/// Returns `data` with `ui.theme` set to `theme`, preserving every other key
-/// (and its position) so a hand-authored file keeps its own omissions.
-fn with_theme(data: &str, theme: &str) -> Result<String, String> {
+/// Returns `data` with `section.key` set to `value` — or removed when `value`
+/// is `None` — preserving every other key so a hand-authored file keeps the rest
+/// of its content. Keys are written in the order `serde_json` sorts them, so
+/// formatting is normalized.
+fn set_setting(
+    data: &str,
+    section: &str,
+    key: &str,
+    value: Option<serde_json::Value>,
+) -> Result<String, String> {
     let mut root: serde_json::Value =
         serde_json::from_str(data).map_err(|error| format!("Invalid settings: {error}"))?;
     let object = root
         .as_object_mut()
         .ok_or_else(|| "Settings must be a JSON object".to_string())?;
-    let ui = object
-        .entry("ui")
-        .or_insert_with(|| serde_json::json!({}))
-        .as_object_mut()
-        .ok_or_else(|| "The `ui` section must be a JSON object".to_string())?;
-    ui.insert(
-        "theme".to_string(),
-        serde_json::Value::String(theme.to_string()),
-    );
+
+    match value {
+        Some(value) => {
+            let section = object
+                .entry(section)
+                .or_insert_with(|| serde_json::json!({}))
+                .as_object_mut()
+                .ok_or_else(|| format!("The `{section}` section must be a JSON object"))?;
+            section.insert(key.to_string(), value);
+        }
+        None => {
+            if let Some(section) = object
+                .get_mut(section)
+                .and_then(serde_json::Value::as_object_mut)
+            {
+                section.remove(key);
+            }
+        }
+    }
 
     serde_json::to_string_pretty(&root).map_err(|error| error.to_string())
 }
 
-/// Records the chosen theme in `ui.theme`, creating the file when it is missing.
-/// Only that key is touched; the rest of the user's file is left as authored.
-pub(crate) fn save_theme(theme: &str) -> Result<(), String> {
-    let Some(path) = settings_path() else {
-        return Err("Could not locate the support directory".to_string());
-    };
-
-    let data = match std::fs::read_to_string(&path) {
+/// Reads `path`, applies one change with [`set_setting`], and writes it back
+/// atomically, returning the exact file contents written. A missing file is
+/// created; a malformed one is left untouched.
+fn write_setting_at(
+    path: &Path,
+    section: &str,
+    key: &str,
+    value: Option<serde_json::Value>,
+) -> Result<String, String> {
+    let data = match std::fs::read_to_string(path) {
         Ok(data) => data,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => "{}".to_string(),
         Err(error) => return Err(format!("Could not read settings: {error}")),
     };
-    let json = with_theme(&data, theme)?;
+    let contents = set_setting(&data, section, key, value)? + "\n";
 
     if let Some(parent) = path.parent()
         && std::fs::create_dir_all(parent).is_err()
@@ -168,8 +187,57 @@ pub(crate) fn save_theme(theme: &str) -> Result<(), String> {
     }
 
     let temp = path.with_file_name("settings.json.tmp");
-    std::fs::write(&temp, json + "\n").map_err(|error| error.to_string())?;
-    std::fs::rename(&temp, &path).map_err(|error| error.to_string())
+    std::fs::write(&temp, &contents).map_err(|error| error.to_string())?;
+    std::fs::rename(&temp, path).map_err(|error| error.to_string())?;
+    Ok(contents)
+}
+
+fn save_setting(
+    section: &str,
+    key: &str,
+    value: Option<serde_json::Value>,
+) -> Result<String, String> {
+    let Some(path) = settings_path() else {
+        return Err("Could not locate the support directory".to_string());
+    };
+    write_setting_at(&path, section, key, value)
+}
+
+/// Records the theme choice (`ui.theme`).
+pub(crate) fn save_theme(theme: &str) -> Result<String, String> {
+    save_setting(
+        "ui",
+        "theme",
+        Some(serde_json::Value::String(theme.to_string())),
+    )
+}
+
+/// Records the word-wrap toggle (`editor.soft_wrap`).
+pub(crate) fn save_soft_wrap(enabled: bool) -> Result<String, String> {
+    save_setting(
+        "editor",
+        "soft_wrap",
+        Some(serde_json::Value::Bool(enabled)),
+    )
+}
+
+/// Records the whitespace toggle (`editor.show_whitespace`).
+pub(crate) fn save_show_whitespace(enabled: bool) -> Result<String, String> {
+    save_setting(
+        "editor",
+        "show_whitespace",
+        Some(serde_json::Value::Bool(enabled)),
+    )
+}
+
+/// Records the zoom level (`editor.font_size`); `None` removes the override so
+/// the theme's default size applies again.
+pub(crate) fn save_font_size(size: Option<f32>) -> Result<String, String> {
+    save_setting(
+        "editor",
+        "font_size",
+        size.map(|size| serde_json::json!(size)),
+    )
 }
 
 /// Explains why `family` will not render, with installed names to use instead.
@@ -281,36 +349,94 @@ mod tests {
         assert!(!settings.ui.tab_icons());
     }
 
+    fn text(value: &str) -> Option<serde_json::Value> {
+        Some(serde_json::Value::String(value.to_string()))
+    }
+
     #[test]
-    fn with_theme_preserves_other_keys() {
-        let updated = with_theme(r#"{"editor": {"font_size": 15}}"#, "light").unwrap();
+    fn set_setting_updates_a_key_and_keeps_the_rest() {
+        let updated = set_setting(
+            r#"{"editor": {"font_size": 15}}"#,
+            "editor",
+            "soft_wrap",
+            Some(serde_json::Value::Bool(true)),
+        )
+        .unwrap();
         let value: serde_json::Value = serde_json::from_str(&updated).unwrap();
 
-        assert_eq!(value["ui"]["theme"], "light");
+        assert_eq!(value["editor"]["soft_wrap"], true);
         assert_eq!(value["editor"]["font_size"], 15);
     }
 
     #[test]
-    fn with_theme_adds_missing_ui_section() {
-        let updated = with_theme("{}", "light").unwrap();
+    fn set_setting_adds_a_missing_section() {
+        let updated = set_setting("{}", "ui", "theme", text("light")).unwrap();
         let value: serde_json::Value = serde_json::from_str(&updated).unwrap();
 
         assert_eq!(value["ui"]["theme"], "light");
     }
 
     #[test]
-    fn with_theme_replaces_existing_theme() {
-        let updated =
-            with_theme(r#"{"ui": {"theme": "dark", "tab_icons": false}}"#, "light").unwrap();
+    fn set_setting_removes_a_key_when_value_is_none() {
+        let updated = set_setting(
+            r#"{"editor": {"font_size": 15, "soft_wrap": true}}"#,
+            "editor",
+            "font_size",
+            None,
+        )
+        .unwrap();
         let value: serde_json::Value = serde_json::from_str(&updated).unwrap();
 
-        assert_eq!(value["ui"]["theme"], "light");
-        assert_eq!(value["ui"]["tab_icons"], false);
+        assert!(value["editor"].get("font_size").is_none());
+        assert_eq!(value["editor"]["soft_wrap"], true);
     }
 
     #[test]
-    fn with_theme_rejects_malformed_json() {
-        assert!(with_theme("{", "light").is_err());
+    fn set_setting_rejects_malformed_json() {
+        assert!(set_setting("{", "ui", "theme", text("light")).is_err());
+    }
+
+    #[test]
+    fn saved_settings_round_trip_through_load() {
+        let json = set_setting(
+            r#"{"editor": {"font_size": 15}}"#,
+            "ui",
+            "theme",
+            text("light"),
+        )
+        .unwrap();
+        let settings = parse_settings(&json).unwrap();
+
+        assert_eq!(settings.ui.theme(), "light");
+        assert_eq!(settings.editor.font_size(), Some(15.));
+    }
+
+    #[test]
+    fn write_setting_creates_then_updates_the_file() {
+        let dir = std::env::temp_dir().join(format!("tinytext-settings-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+
+        // A missing file is created with just the key, and the returned
+        // contents match what landed on disk.
+        let written = write_setting_at(&path, "ui", "theme", text("light")).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), written);
+        let settings = parse_settings(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(settings.ui.theme(), "light");
+
+        // An existing file keeps its other keys.
+        std::fs::write(&path, r#"{"editor": {"font_size": 15}}"#).unwrap();
+        write_setting_at(&path, "ui", "theme", text("dark")).unwrap();
+        let settings = parse_settings(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(settings.ui.theme(), "dark");
+        assert_eq!(settings.editor.font_size(), Some(15.));
+
+        // A cleared value removes the key again.
+        write_setting_at(&path, "editor", "font_size", None).unwrap();
+        let settings = parse_settings(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(settings.editor.font_size(), None);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
