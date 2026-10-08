@@ -25,8 +25,8 @@ gpui_kit::actions!(
     [
         NewFile,
         OpenFile,
-        OpenFolder,
-        CloseFolder,
+        AddFolder,
+        CloseAllFolders,
         SaveFile,
         SaveFileAs,
         SaveAll,
@@ -125,12 +125,19 @@ fn main() {
             .unwrap_or(DEFAULT_FONT_WEIGHT);
         markdown::apply_emphasis(cx, base_weight);
 
-        let argument = std::env::args().nth(1);
-        let initial_folder = argument
-            .as_ref()
+        // Positional arguments are the folders to open at launch. Passing any
+        // of them defines the initial root set, so the saved session is skipped.
+        let arguments: Vec<PathBuf> = std::env::args()
+            .skip(1)
+            .filter(|argument| !argument.starts_with('-'))
             .map(PathBuf::from)
-            .filter(|path| path.is_dir());
-        let session = if argument.is_none() {
+            .collect();
+        let initial_folders: Vec<PathBuf> = arguments
+            .iter()
+            .filter(|path| path.is_dir())
+            .cloned()
+            .collect();
+        let session = if arguments.is_empty() {
             load_session()
         } else {
             None
@@ -155,7 +162,7 @@ fn main() {
                 Ok(settings) => (settings, None),
                 Err(message) => (Default::default(), Some(message)),
             };
-            let app = cx.new(|cx| TinytextApp::new(initial_folder.clone(), settings, cx));
+            let app = cx.new(|cx| TinytextApp::new(initial_folders.clone(), settings, cx));
             // The notification layer is attached after this closure returns.
             if let Some(message) = settings_error {
                 window.defer(cx, move |window, cx| {
@@ -228,8 +235,8 @@ fn app_menus() -> Vec<Menu> {
         Menu::new("File").items([
             MenuItem::action("New File", NewFile),
             MenuItem::action("Open…", OpenFile),
-            MenuItem::action("Open Folder…", OpenFolder),
-            MenuItem::action("Close Folder", CloseFolder),
+            MenuItem::action("Add Folder…", AddFolder),
+            MenuItem::action("Close All Folders", CloseAllFolders),
             MenuItem::separator(),
             MenuItem::action("Save", SaveFile),
             MenuItem::action("Save As…", SaveFileAs),
@@ -237,10 +244,6 @@ fn app_menus() -> Vec<Menu> {
             MenuItem::separator(),
             MenuItem::action("Close Tab", CloseTab),
             MenuItem::action("Reopen Last Closed Tab", ReopenClosedTab),
-            MenuItem::separator(),
-            MenuItem::action("Reveal in Finder", RevealInFinder),
-            MenuItem::action("Copy File Path", CopyFilePath),
-            MenuItem::action("Copy Relative Path", CopyRelativePath),
         ]),
         Menu::new("Edit").items([
             MenuItem::os_action("Undo", input::Undo, OsAction::Undo),
@@ -249,6 +252,9 @@ fn app_menus() -> Vec<Menu> {
             MenuItem::os_action("Cut", input::Cut, OsAction::Cut),
             MenuItem::os_action("Copy", input::Copy, OsAction::Copy),
             MenuItem::os_action("Paste", input::Paste, OsAction::Paste),
+            MenuItem::separator(),
+            MenuItem::action("Copy Path", CopyFilePath),
+            MenuItem::action("Copy Relative Path", CopyRelativePath),
             MenuItem::separator(),
             MenuItem::action("Find…", input::Search),
             MenuItem::action("Find and Replace…", input::Replace),

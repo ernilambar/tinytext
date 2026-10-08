@@ -16,12 +16,12 @@ use gpui_kit::component::{
 use gpui_kit::*;
 
 use crate::{
-    About, CheckForUpdates, CloseFolder, CloseTab, CommandPalette, CopyFilePath, CopyLineDown,
-    CopyLineUp, CopyRelativePath, DeleteLine, GoToLine, InsertLineAbove, InsertLineBelow,
-    MoveLineDown, MoveLineUp, NewFile, NextTab, OpenFile, OpenFolder, OpenSettings, PreviousTab,
-    Refresh, ReopenClosedTab, RevealInFinder, SaveAll, SaveFile, SaveFileAs, SelectLine,
-    ToggleLineComment, ToggleSidebar, ToggleTheme, ToggleWhitespace, ToggleWordWrap, ZoomIn,
-    ZoomOut, ZoomReset,
+    About, AddFolder, CheckForUpdates, CloseAllFolders, CloseTab, CommandPalette, CopyFilePath,
+    CopyLineDown, CopyLineUp, CopyRelativePath, DeleteLine, GoToLine, InsertLineAbove,
+    InsertLineBelow, MoveLineDown, MoveLineUp, NewFile, NextTab, OpenFile, OpenSettings,
+    PreviousTab, Refresh, ReopenClosedTab, RevealInFinder, SaveAll, SaveFile, SaveFileAs,
+    SelectLine, ToggleLineComment, ToggleSidebar, ToggleTheme, ToggleWhitespace, ToggleWordWrap,
+    ZoomIn, ZoomOut, ZoomReset,
 };
 
 use super::TinytextApp;
@@ -42,16 +42,14 @@ fn palette_groups() -> Vec<CommandGroup> {
         CommandGroup::new().label("File").items([
             item("New File", Box::new(NewFile)),
             item("Open…", Box::new(OpenFile)),
-            item("Open Folder…", Box::new(OpenFolder)),
-            item("Close Folder", Box::new(CloseFolder)),
+            item("Add Folder…", Box::new(AddFolder)),
+            item("Close All Folders", Box::new(CloseAllFolders)),
             item("Save", Box::new(SaveFile)),
             item("Save As…", Box::new(SaveFileAs)),
             item("Save All", Box::new(SaveAll)),
             item("Close Tab", Box::new(CloseTab)),
             item("Reopen Closed Tab", Box::new(ReopenClosedTab)),
             item("Reveal in Finder", Box::new(RevealInFinder)),
-            item("Copy File Path", Box::new(CopyFilePath)),
-            item("Copy Relative Path", Box::new(CopyRelativePath)),
         ]),
         CommandGroup::new().label("Edit").items([
             item("Toggle Line Comment", Box::new(ToggleLineComment)),
@@ -67,6 +65,8 @@ fn palette_groups() -> Vec<CommandGroup> {
                 .label("Go to Line…")
                 .keywords(["goto"])
                 .action(Box::new(GoToLine)),
+            item("Copy Path", Box::new(CopyFilePath)),
+            item("Copy Relative Path", Box::new(CopyRelativePath)),
         ]),
         CommandGroup::new().label("View").items([
             item("Toggle Sidebar", Box::new(ToggleSidebar)),

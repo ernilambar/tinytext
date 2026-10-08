@@ -7,7 +7,7 @@ use crate::paths::support_dir;
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct SessionState {
-    pub(crate) workspace_root: Option<PathBuf>,
+    pub(crate) roots: Vec<PathBuf>,
     pub(crate) tabs: Vec<PathBuf>,
     pub(crate) active_tab: Option<PathBuf>,
     pub(crate) expanded: Vec<PathBuf>,
@@ -32,7 +32,7 @@ mod tests {
     #[test]
     fn session_round_trips_through_json() {
         let state = SessionState {
-            workspace_root: Some(PathBuf::from("/tmp/project")),
+            roots: vec![PathBuf::from("/tmp/project"), PathBuf::from("/tmp/other")],
             tabs: vec![PathBuf::from("/tmp/project/a.rs")],
             active_tab: Some(PathBuf::from("/tmp/project/a.rs")),
             expanded: vec![PathBuf::from("/tmp/project")],
@@ -42,7 +42,7 @@ mod tests {
         let json = serde_json::to_string(&state).unwrap();
         let restored: SessionState = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(restored.workspace_root, state.workspace_root);
+        assert_eq!(restored.roots, state.roots);
         assert_eq!(restored.tabs, state.tabs);
         assert_eq!(restored.active_tab, state.active_tab);
         assert_eq!(restored.expanded, state.expanded);
@@ -55,7 +55,15 @@ mod tests {
         let restored: SessionState = serde_json::from_str(r#"{"tabs": ["/tmp/a.txt"]}"#).unwrap();
 
         assert_eq!(restored.tabs, [PathBuf::from("/tmp/a.txt")]);
-        assert_eq!(restored.workspace_root, None);
+        assert!(restored.roots.is_empty());
         assert!(!restored.sidebar_visible);
+    }
+
+    #[test]
+    fn session_ignores_the_legacy_workspace_root_key() {
+        let restored: SessionState =
+            serde_json::from_str(r#"{"workspace_root": "/tmp/project"}"#).unwrap();
+
+        assert!(restored.roots.is_empty());
     }
 }

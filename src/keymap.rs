@@ -10,12 +10,12 @@
 use gpui_kit::*;
 
 use crate::{
-    CloseFolder, CloseTab, CommandPalette, CopyFilePath, CopyLineDown, CopyLineUp,
+    AddFolder, CloseAllFolders, CloseTab, CommandPalette, CopyFilePath, CopyLineDown, CopyLineUp,
     CopyRelativePath, DeleteLine, GoToLine, Hide, HideOthers, InsertLineAbove, InsertLineBelow,
-    JumpToTab, MoveLineDown, MoveLineUp, NewFile, NextTab, OpenFile, OpenFolder, OpenSettings,
-    PreviousTab, Quit, Refresh, ReopenClosedTab, RevealInFinder, SaveAll, SaveFile, SaveFileAs,
-    SelectLine, ToggleLineComment, ToggleSidebar, ToggleTheme, ToggleWhitespace, ToggleWordWrap,
-    ZoomIn, ZoomOut, ZoomReset,
+    JumpToTab, MoveLineDown, MoveLineUp, NewFile, NextTab, OpenFile, OpenSettings, PreviousTab,
+    Quit, Refresh, ReopenClosedTab, RevealInFinder, SaveAll, SaveFile, SaveFileAs, SelectLine,
+    ToggleLineComment, ToggleSidebar, ToggleTheme, ToggleWhitespace, ToggleWordWrap, ZoomIn,
+    ZoomOut, ZoomReset,
 };
 
 /// gpui-kit's editor key context. Its `CONTEXT` constant is private, so the
@@ -33,8 +33,8 @@ fn app_bindings() -> Vec<KeyBinding> {
     vec![
         KeyBinding::new("cmd-n", NewFile, None),
         KeyBinding::new("cmd-o", OpenFile, None),
-        KeyBinding::new("cmd-shift-o", OpenFolder, None),
-        KeyBinding::new("alt-cmd-w", CloseFolder, None),
+        KeyBinding::new("cmd-shift-o", AddFolder, None),
+        KeyBinding::new("alt-cmd-w", CloseAllFolders, None),
         KeyBinding::new("cmd-s", SaveFile, None),
         KeyBinding::new("cmd-shift-s", SaveFileAs, None),
         KeyBinding::new("alt-cmd-s", SaveAll, None),
@@ -147,7 +147,7 @@ mod tests {
         for (keys, action) in [
             ("alt-cmd-i", "ToggleWhitespace"),
             ("alt-cmd-t", "ToggleTheme"),
-            ("alt-cmd-w", "CloseFolder"),
+            ("alt-cmd-w", "CloseAllFolders"),
             ("alt-cmd-r", "RevealInFinder"),
             ("alt-cmd-c", "CopyFilePath"),
             ("alt-cmd-shift-c", "CopyRelativePath"),

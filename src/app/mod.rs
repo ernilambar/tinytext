@@ -62,19 +62,22 @@ struct ClosedTab {
 /// How many recently closed tabs to remember for `ReopenClosedTab`.
 const MAX_CLOSED_TABS: usize = 10;
 
-/// One flattened, currently-visible row of the sidebar tree.
+/// One flattened, currently-visible row of the sidebar tree. A root row is a
+/// workspace folder itself; every other row is one of its entries.
 struct TreeRow {
     path: PathBuf,
     depth: usize,
     is_dir: bool,
+    is_root: bool,
 }
 
 pub(crate) struct TinytextApp {
     pub(crate) focus_handle: FocusHandle,
-    workspace_root: Option<PathBuf>,
+    /// The workspace folders shown in the sidebar, in the order they were added.
+    workspace_roots: Vec<PathBuf>,
     expanded: HashSet<PathBuf>,
     selected_path: Option<PathBuf>,
-    /// Directory listings for the root and every expanded folder, so rendering
+    /// Directory listings for every root and expanded folder, so rendering
     /// the tree never touches the disk. Invalidated on filesystem changes.
     dir_cache: HashMap<PathBuf, Vec<DirEntry>>,
     /// The flattened, visible rows derived from `dir_cache` + `expanded`,
@@ -108,19 +111,28 @@ pub(crate) struct TinytextApp {
 
 impl TinytextApp {
     pub(crate) fn new(
-        workspace_root: Option<PathBuf>,
+        workspace_roots: Vec<PathBuf>,
         settings: Settings,
         cx: &mut Context<Self>,
     ) -> Self {
+        // The sidebar starts open only when there is a folder to show. Toggling
+        // it later is independent of the roots, and reveals the empty state.
+        let mut roots: Vec<PathBuf> = Vec::new();
+        for root in workspace_roots {
+            if root.is_dir() && !roots.contains(&root) {
+                roots.push(root);
+            }
+        }
+        let sidebar_visible = !roots.is_empty();
+
         let mut expanded = HashSet::new();
-        if let Some(root) = &workspace_root {
+        for root in &roots {
             expanded.insert(root.clone());
         }
-        let sidebar_visible = workspace_root.is_some();
 
         let mut app = Self {
             focus_handle: cx.focus_handle(),
-            workspace_root,
+            workspace_roots: roots,
             expanded,
             selected_path: None,
             dir_cache: HashMap::new(),
@@ -168,21 +180,27 @@ impl TinytextApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(root) = session.workspace_root.filter(|path| path.is_dir()) {
-            self.workspace_root = Some(root);
-        }
+        self.workspace_roots = session.roots.into_iter().filter(|path| path.is_dir()).fold(
+            Vec::new(),
+            |mut roots, root| {
+                if !roots.contains(&root) {
+                    roots.push(root);
+                }
+                roots
+            },
+        );
 
         self.expanded = session
             .expanded
             .into_iter()
             .filter(|path| path.is_dir())
             .collect();
-        if let Some(root) = &self.workspace_root {
+        for root in &self.workspace_roots {
             self.expanded.insert(root.clone());
         }
 
         self.selected_path = session.selected_path.filter(|path| path.exists());
-        self.sidebar_visible = session.sidebar_visible && self.workspace_root.is_some();
+        self.sidebar_visible = session.sidebar_visible;
         self.reload_tree();
 
         let mut paths = session.tabs;
@@ -233,7 +251,7 @@ impl TinytextApp {
         expanded.sort();
 
         let state = SessionState {
-            workspace_root: self.workspace_root.clone(),
+            roots: self.workspace_roots.clone(),
             tabs: self
                 .tabs
                 .iter()
@@ -260,8 +278,8 @@ impl TinytextApp {
         }
     }
 
-    /// Clears the directory cache and re-reads the workspace tree from disk.
-    /// Call after any filesystem change or when the workspace root changes.
+    /// Clears the directory cache and re-reads every workspace tree from disk.
+    /// Call after any filesystem change or when the roots change.
     pub(crate) fn reload_tree(&mut self) {
         self.dir_cache.clear();
         self.rebuild_visible_rows();
@@ -272,9 +290,18 @@ impl TinytextApp {
     fn rebuild_visible_rows(&mut self) {
         let mut rows = std::mem::take(&mut self.visible_rows);
         rows.clear();
-        if let Some(root) = self.workspace_root.clone() {
-            self.cache_dir(&root);
-            self.collect_rows(&root, 0, &mut rows);
+        let roots = self.workspace_roots.clone();
+        for root in &roots {
+            rows.push(TreeRow {
+                path: root.clone(),
+                depth: 0,
+                is_dir: true,
+                is_root: true,
+            });
+            if self.expanded.contains(root) {
+                self.cache_dir(root);
+                self.collect_rows(root, 1, &mut rows);
+            }
         }
         self.visible_rows = rows;
     }
@@ -296,6 +323,7 @@ impl TinytextApp {
                 path: entry.path.clone(),
                 depth,
                 is_dir: entry.is_dir,
+                is_root: false,
             });
             if entry.is_dir && self.expanded.contains(&entry.path) {
                 self.cache_dir(&entry.path);
@@ -382,7 +410,7 @@ impl TinytextApp {
     }
 
     pub(super) fn copy_relative_path(&self, path: &Path, cx: &mut Context<Self>) {
-        let text = match &self.workspace_root {
+        let text = match crate::paths::nearest_root(&self.workspace_roots, path) {
             Some(root) => crate::paths::relative_display(path, root),
             None => path.display().to_string(),
         };
@@ -390,9 +418,6 @@ impl TinytextApp {
     }
 
     fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
-        if self.workspace_root.is_none() {
-            return;
-        }
         self.sidebar_visible = !self.sidebar_visible;
         self.save_session();
         cx.notify();
@@ -792,8 +817,8 @@ impl Render for TinytextApp {
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::on_new_file))
             .on_action(cx.listener(Self::on_open_file))
-            .on_action(cx.listener(Self::on_open_folder))
-            .on_action(cx.listener(Self::on_close_folder))
+            .on_action(cx.listener(Self::on_add_folder))
+            .on_action(cx.listener(Self::on_close_all_folders))
             .on_action(cx.listener(Self::on_save_file))
             .on_action(cx.listener(Self::on_save_file_as))
             .on_action(cx.listener(Self::on_save_all))

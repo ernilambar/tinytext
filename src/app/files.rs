@@ -9,8 +9,11 @@ use gpui_kit::component::{
 use gpui_kit::*;
 
 use crate::language::{editor_language_id, language_for};
-use crate::paths::{copy_entry, duplicate_name, file_name, is_valid_entry_name, remap_prefix};
-use crate::{CloseFolder, NewFile, OpenFile, OpenFolder, SaveAll, SaveFile, SaveFileAs};
+use crate::paths::{
+    RootConflict, copy_entry, duplicate_name, file_name, is_valid_entry_name, remap_prefix,
+    root_conflict,
+};
+use crate::{AddFolder, CloseAllFolders, NewFile, OpenFile, SaveAll, SaveFile, SaveFileAs};
 
 use super::{FileClipboard, TinytextApp};
 
@@ -30,7 +33,7 @@ impl TinytextApp {
         cx: &mut Context<Self>,
     ) {
         if path.is_dir() {
-            self.open_folder(path, cx);
+            self.add_root(path, window, cx);
             return;
         }
 
@@ -100,56 +103,91 @@ impl TinytextApp {
         .detach();
     }
 
-    pub(super) fn on_open_folder(
+    pub(super) fn on_add_folder(
         &mut self,
-        _: &OpenFolder,
+        _: &AddFolder,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let receiver = cx.prompt_for_paths(PathPromptOptions {
             files: false,
             directories: true,
-            multiple: false,
-            prompt: Some("Open Folder".into()),
+            multiple: true,
+            prompt: Some("Add Folder".into()),
         });
 
         cx.spawn_in(window, async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = receiver.await
-                && let Some(path) = paths.into_iter().next()
-            {
-                this.update_in(cx, |this, _window, cx| this.open_folder(path, cx))
-                    .ok();
+            if let Ok(Ok(Some(paths))) = receiver.await {
+                this.update_in(cx, |this, window, cx| {
+                    for path in paths {
+                        this.add_root(path, window, cx);
+                    }
+                })
+                .ok();
             }
         })
         .detach();
     }
 
-    pub(super) fn open_folder(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        self.workspace_root = Some(path.clone());
-        self.expanded.clear();
+    /// Adds a folder to the sidebar. Exact duplicates are ignored silently;
+    /// folders that overlap an open root are rejected with a message.
+    pub(super) fn add_root(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        match root_conflict(&self.workspace_roots, &path) {
+            Some(RootConflict::Duplicate) => return,
+            Some(RootConflict::Overlap) => {
+                window.push_notification(
+                    Notification::error(format!(
+                        "Cannot add \"{}\": it overlaps an open folder",
+                        file_name(&path)
+                    )),
+                    cx,
+                );
+                return;
+            }
+            None => {}
+        }
+
+        self.workspace_roots.push(path.clone());
         self.expanded.insert(path);
-        self.selected_path = None;
         self.sidebar_visible = true;
         self.reload_tree();
         self.save_session();
         cx.notify();
     }
 
-    pub(super) fn on_close_folder(
+    pub(super) fn on_close_all_folders(
         &mut self,
-        _: &CloseFolder,
+        _: &CloseAllFolders,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.close_folder(cx);
+        self.close_all_roots(cx);
     }
 
-    /// Drops the workspace root and its tree state. Open tabs stay open.
-    pub(super) fn close_folder(&mut self, cx: &mut Context<Self>) {
-        self.workspace_root = None;
+    /// Removes one workspace root and its subtree expansion state. Open tabs
+    /// stay open, and the sidebar stays visible.
+    pub(super) fn remove_root(&mut self, path: &Path, cx: &mut Context<Self>) {
+        self.workspace_roots.retain(|root| root != path);
+        self.expanded
+            .retain(|entry| entry.as_path() != path && !entry.starts_with(path));
+        if self
+            .selected_path
+            .as_deref()
+            .is_some_and(|selected| selected == path || selected.starts_with(path))
+        {
+            self.selected_path = None;
+        }
+        self.reload_tree();
+        self.save_session();
+        cx.notify();
+    }
+
+    /// Removes every workspace root. Open tabs stay open and the sidebar stays
+    /// visible, showing its empty state.
+    pub(super) fn close_all_roots(&mut self, cx: &mut Context<Self>) {
+        self.workspace_roots.clear();
         self.expanded.clear();
         self.selected_path = None;
-        self.sidebar_visible = false;
         self.reload_tree();
         self.save_session();
         cx.notify();
@@ -175,8 +213,9 @@ impl TinytextApp {
         }
 
         let directory = self
-            .workspace_root
-            .clone()
+            .workspace_roots
+            .first()
+            .cloned()
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
         let receiver = cx.prompt_for_new_path(&directory, Some("untitled.txt"));
 
@@ -214,7 +253,7 @@ impl TinytextApp {
             .as_deref()
             .and_then(Path::parent)
             .map(Path::to_path_buf)
-            .or_else(|| self.workspace_root.clone())
+            .or_else(|| self.workspace_roots.first().cloned())
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
         let receiver = cx.prompt_for_new_path(&directory, Some(suggested.as_str()));
@@ -660,7 +699,7 @@ impl TinytextApp {
         );
     }
 
-    /// Moves every open tab, expansion entry, and the workspace root from the
+    /// Moves every open tab, expansion entry, and workspace root from the
     /// old path prefix to the new one after a rename or move.
     fn after_rename(&mut self, old: &Path, new: &Path, cx: &mut Context<Self>) {
         for tab in &mut self.tabs {
@@ -682,11 +721,7 @@ impl TinytextApp {
         let remap = |path: &PathBuf| remap_prefix(path, old, new).unwrap_or_else(|| path.clone());
         self.expanded = self.expanded.iter().map(remap).collect();
         self.selected_path = self.selected_path.as_ref().map(remap);
-        if let Some(root) = &self.workspace_root
-            && let Some(mapped) = remap_prefix(root, old, new)
-        {
-            self.workspace_root = Some(mapped);
-        }
+        self.workspace_roots = self.workspace_roots.iter().map(remap).collect();
 
         self.reload_tree();
         self.save_session();
