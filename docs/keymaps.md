@@ -46,7 +46,6 @@ indent, and multi-cursor editing. Add a cursor above or below with `⌘⌥↑` /
 | `⌘R` | `Cmd + R` | Refresh |
 | `⌥Z` | `Option + Z` | Toggle Word Wrap |
 | `⌥⌘I` | `Cmd + Option + I` | Toggle Invisible Characters |
-| `⌥⌘T` | `Cmd + Option + T` | Toggle Light/Dark Theme |
 | `⌘=` / `⌘-` / `⌘0` | `Cmd + =` / `Cmd + -` / `Cmd + 0` | Zoom In / Zoom Out / Actual Size |
 | `⌘,` | `Cmd + ,` | Settings… |
 | `⌘H` / `⌥⌘H` | `Cmd + H` / `Cmd + Option + H` | Hide / Hide Others |

@@ -15,7 +15,7 @@ use std::rc::Rc;
 
 use gpui_kit::base::StyledExt as _;
 use gpui_kit::component::{
-    ActiveTheme as _, Sizable as _, Theme,
+    ActiveTheme as _, Sizable as _,
     button::{Button, ButtonVariants as _},
     input::TabSize,
     setting::{NumberFieldOptions, SettingField, SettingGroup, SettingItem, SettingPage, Settings},
@@ -202,10 +202,10 @@ impl TinytextApp {
         let theme_item = SettingItem::new(
             "Theme",
             SettingField::dropdown(
-                vec![
-                    (SharedString::from("light"), SharedString::from("Light")),
-                    (SharedString::from("dark"), SharedString::from("Dark")),
-                ],
+                crate::THEME_CHOICES
+                    .iter()
+                    .map(|(value, label)| (SharedString::from(*value), SharedString::from(*label)))
+                    .collect::<Vec<_>>(),
                 move |_cx| SharedString::from(theme_value_owned.clone()),
                 move |value, cx| {
                     theme_weak
@@ -358,10 +358,7 @@ impl TinytextApp {
 
     fn set_ui_theme(&mut self, theme: String, cx: &mut Context<Self>) {
         self.settings.ui.theme = Some(theme.clone());
-        let mode = crate::theme_mode_from(&theme);
-        if cx.theme().mode != mode {
-            Theme::change(mode, None, cx);
-        }
+        self.apply_theme_choice(&theme, None, cx);
         self.record_write(save_theme(&theme), cx);
     }
 

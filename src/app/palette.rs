@@ -20,7 +20,7 @@ use crate::{
     CopyLineDown, CopyLineUp, CopyRelativePath, DeleteLine, GoToLine, InsertLineAbove,
     InsertLineBelow, MoveLineDown, MoveLineUp, NewFile, NextTab, OpenFile, OpenSettings,
     PreviousTab, Refresh, ReopenClosedTab, RevealInFinder, SaveAll, SaveFile, SaveFileAs,
-    SelectLine, ToggleLineComment, ToggleSidebar, ToggleTheme, ToggleWhitespace, ToggleWordWrap,
+    SelectLine, SetTheme, ToggleLineComment, ToggleSidebar, ToggleWhitespace, ToggleWordWrap,
     ZoomIn, ZoomOut, ZoomReset,
 };
 
@@ -78,11 +78,15 @@ fn palette_groups() -> Vec<CommandGroup> {
             item("Toggle Invisible Characters", Box::new(ToggleWhitespace)),
             item("Next Tab", Box::new(NextTab)),
             item("Previous Tab", Box::new(PreviousTab)),
-            CommandItem::new()
-                .label("Toggle Light/Dark Theme")
-                .keywords(["appearance"])
-                .action(Box::new(ToggleTheme)),
         ]),
+        CommandGroup::new()
+            .label("Appearance")
+            .items(crate::THEME_CHOICES.iter().map(|(value, label)| {
+                CommandItem::new()
+                    .label(*label)
+                    .keywords(["theme", "appearance"])
+                    .action(Box::new(SetTheme((*value).to_string())))
+            })),
         CommandGroup::new().label("Tinytext").items([
             CommandItem::new()
                 .label("Settings…")

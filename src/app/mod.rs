@@ -11,7 +11,7 @@ use std::sync::{Arc, OnceLock};
 
 use gpui_kit::base::StyledExt as _;
 use gpui_kit::component::{
-    ActiveTheme as _, Theme, ThemeMode, WindowExt as _,
+    ActiveTheme as _, WindowExt as _,
     command::CommandState,
     input::{EditorState, TabSize},
     link::Link,
@@ -29,8 +29,8 @@ use crate::settings::{
 use crate::update::{INSTALL_COMMAND, is_newer, latest_version};
 use crate::{
     About, CheckForUpdates, CopyFilePath, CopyRelativePath, InstallCli, JumpToTab, NextTab,
-    OpenSettings, PreviousTab, Quit, Refresh, ReopenClosedTab, RevealInFinder, ToggleSidebar,
-    ToggleTheme, ToggleWhitespace, ToggleWordWrap, ZoomIn, ZoomOut, ZoomReset,
+    OpenSettings, PreviousTab, Quit, Refresh, ReopenClosedTab, RevealInFinder, SetTheme,
+    ToggleSidebar, ToggleWhitespace, ToggleWordWrap, ZoomIn, ZoomOut, ZoomReset,
 };
 
 /// The app name shown in the window title, before the focused tab's path.
@@ -498,15 +498,46 @@ impl TinytextApp {
         cx.notify();
     }
 
-    fn on_toggle_theme(&mut self, _: &ToggleTheme, window: &mut Window, cx: &mut Context<Self>) {
-        let mode = match cx.theme().mode {
-            ThemeMode::Dark => ThemeMode::Light,
-            ThemeMode::Light => ThemeMode::Dark,
-        };
-        Theme::change(mode, Some(window), cx);
-        self.settings.ui.theme = Some(crate::theme_name(mode).to_string());
-        self.after_setting_write(save_theme(self.settings.ui.theme()), window, cx);
+    /// Applies an appearance picked from the Appearance menu or the command
+    /// palette, persisting it and refreshing the menu's check mark.
+    fn on_set_theme(&mut self, action: &SetTheme, window: &mut Window, cx: &mut Context<Self>) {
+        let choice = action.0.clone();
+        self.settings.ui.theme = Some(choice.clone());
+        self.apply_theme_choice(&choice, Some(window), cx);
+        self.after_setting_write(save_theme(&choice), window, cx);
         cx.notify();
+    }
+
+    /// Re-resolves the theme when macOS switches appearance, but only while the
+    /// user chose to follow the system.
+    pub(super) fn on_system_appearance_changed(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let choice = self.settings.ui.theme();
+        if choice != crate::THEME_SYSTEM {
+            return;
+        }
+        self.apply_theme_choice(choice, Some(window), cx);
+        cx.notify();
+    }
+
+    /// Applies the current `ui.theme` choice to the live theme and refreshes the
+    /// Appearance menu so its check mark matches.
+    fn apply_theme_choice(
+        &self,
+        choice: &str,
+        window: Option<&mut Window>,
+        cx: &mut Context<Self>,
+    ) {
+        let base_weight = self
+            .settings
+            .editor
+            .font_weight()
+            .unwrap_or(DEFAULT_FONT_WEIGHT);
+        crate::apply_theme(choice, base_weight, window, cx);
+        cx.set_menus(crate::app_menus(choice));
     }
 
     /// Applies the outcome of a settings write: on success, mirrors the new file
@@ -776,19 +807,11 @@ impl TinytextApp {
         match load_settings() {
             Ok(settings) => {
                 self.settings = settings;
-                let base_weight = self
-                    .settings
-                    .editor
-                    .font_weight()
-                    .unwrap_or(DEFAULT_FONT_WEIGHT);
-                crate::markdown::apply_emphasis(cx, base_weight);
                 // Re-run the editor-only options and the theme on top of what
                 // was already open, so editing the settings file re-applies.
                 self.apply_editor_options_to_all(window, cx);
-                let mode = crate::theme_mode_from(self.settings.ui.theme());
-                if cx.theme().mode != mode {
-                    Theme::change(mode, Some(window), cx);
-                }
+                let choice = self.settings.ui.theme().to_string();
+                self.apply_theme_choice(&choice, Some(window), cx);
                 self.check_font_family(window, cx);
                 cx.notify();
             }
@@ -919,7 +942,7 @@ impl Render for TinytextApp {
             .on_action(cx.listener(Self::on_zoom_reset))
             .on_action(cx.listener(Self::on_toggle_word_wrap))
             .on_action(cx.listener(Self::on_toggle_whitespace))
-            .on_action(cx.listener(Self::on_toggle_theme))
+            .on_action(cx.listener(Self::on_set_theme))
             .on_action(cx.listener(Self::on_next_tab))
             .on_action(cx.listener(Self::on_previous_tab))
             .on_action(cx.listener(Self::on_jump_to_tab))

@@ -18,7 +18,7 @@ A fast, lightweight text editor for macOS.
 - Cursor position, encoding, and language in the status bar
 - `tinytext` command to open files from the terminal
 - Shows up in Finder's "Open With" menu for text files
-- Dark theme
+- Light, dark, and system-following themes
 
 ## Requirements
 

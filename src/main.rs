@@ -18,7 +18,7 @@ use app::{TinytextApp, WINDOW_TITLE};
 use cli::{CliCommand, parse_args, print_help};
 use paths::path_from_file_url;
 use session::load_session;
-use settings::{DEFAULT_FONT_WEIGHT, load_settings};
+use settings::{DEFAULT_FONT_WEIGHT, DEFAULT_THEME, load_settings};
 
 gpui_kit::actions!(
     tinytext,
@@ -49,7 +49,6 @@ gpui_kit::actions!(
         ZoomReset,
         ToggleWordWrap,
         ToggleWhitespace,
-        ToggleTheme,
         Refresh,
         NextTab,
         PreviousTab,
@@ -72,6 +71,12 @@ gpui_kit::actions!(
 #[derive(Clone, PartialEq, gpui_kit::Action)]
 #[action(namespace = tinytext, no_json)]
 pub struct JumpToTab(usize);
+
+/// Picks the appearance from the Appearance menu or the command palette. The
+/// payload is the `ui.theme` value: `light`, `dark`, or `system`.
+#[derive(Clone, PartialEq, gpui_kit::Action)]
+#[action(namespace = tinytext, no_json)]
+pub struct SetTheme(pub(crate) String);
 
 fn main() {
     match parse_args(std::env::args().skip(1)) {
@@ -113,17 +118,15 @@ fn main() {
     application.run(move |cx| {
         gpui_kit::init(cx);
         let settings = load_settings();
-        let theme_mode = settings
-            .as_ref()
-            .map(|settings| theme_mode_from(settings.ui.theme()))
-            .unwrap_or(ThemeMode::Dark);
-        Theme::change(theme_mode, None, cx);
-
         let base_weight = settings
             .as_ref()
             .map(|settings| settings.editor.font_weight().unwrap_or(DEFAULT_FONT_WEIGHT))
             .unwrap_or(DEFAULT_FONT_WEIGHT);
-        markdown::apply_emphasis(cx, base_weight);
+        let theme_choice = settings
+            .as_ref()
+            .map(|settings| settings.ui.theme().to_string())
+            .unwrap_or_else(|_| DEFAULT_THEME.to_string());
+        apply_theme(&theme_choice, base_weight, None, cx);
 
         // Positional arguments are the folders to open at launch. Passing any
         // of them defines the initial root set, so the saved session is skipped.
@@ -147,7 +150,7 @@ fn main() {
         cx.on_action(|_: &Hide, cx| cx.hide());
         cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
         cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
-        cx.set_menus(app_menus());
+        cx.set_menus(app_menus(&theme_choice));
 
         let options = WindowOptions {
             titlebar: Some(TitlebarOptions {
@@ -188,6 +191,13 @@ fn main() {
                 })
                 .detach();
             });
+            // Follow macOS appearance changes while the user chose System.
+            app.update(cx, |_this, cx| {
+                cx.observe_window_appearance(window, |this, window, cx| {
+                    this.on_system_appearance_changed(window, cx);
+                })
+                .detach();
+            });
             let focus_handle = app.read(cx).focus_handle.clone();
             focus_handle.focus(window, cx);
 
@@ -211,8 +221,19 @@ fn main() {
     });
 }
 
-/// Maps the string form of `ui.theme` (kept GPUI-free in settings.rs) to a
-/// `ThemeMode`. Unknown values fall back to dark.
+/// The `ui.theme` value that follows the OS appearance.
+pub(crate) const THEME_SYSTEM: &str = "system";
+
+/// The appearance choices as `(ui.theme value, menu label)`, in menu order.
+pub(crate) const THEME_CHOICES: [(&str, &str); 3] = [
+    ("light", "Light"),
+    ("dark", "Dark"),
+    (THEME_SYSTEM, "System"),
+];
+
+/// Maps an explicit string form of `ui.theme` (kept GPUI-free in settings.rs) to
+/// a `ThemeMode`. `system` is resolved by [`apply_theme`] and never reaches
+/// here; unknown values fall back to dark.
 pub(crate) fn theme_mode_from(theme: &str) -> ThemeMode {
     match theme {
         "light" => ThemeMode::Light,
@@ -220,16 +241,24 @@ pub(crate) fn theme_mode_from(theme: &str) -> ThemeMode {
     }
 }
 
-/// The value written back to `ui.theme` for a mode; the inverse of
-/// `theme_mode_from`.
-pub(crate) fn theme_name(mode: ThemeMode) -> &'static str {
-    match mode {
-        ThemeMode::Light => "light",
-        ThemeMode::Dark => "dark",
+/// Applies `choice` to the live theme: `system` follows the OS appearance, while
+/// `light` and `dark` are explicit. Loading a theme resets the highlight theme,
+/// so the markdown emphasis is re-applied on top.
+pub(crate) fn apply_theme(
+    choice: &str,
+    base_weight: f32,
+    window: Option<&mut Window>,
+    cx: &mut App,
+) {
+    if choice == THEME_SYSTEM {
+        Theme::sync_system_appearance(window, cx);
+    } else {
+        Theme::change(theme_mode_from(choice), window, cx);
     }
+    markdown::apply_emphasis(cx, base_weight);
 }
 
-fn app_menus() -> Vec<Menu> {
+pub(crate) fn app_menus(theme: &str) -> Vec<Menu> {
     vec![
         Menu::new("Tinytext").items([
             MenuItem::action("About Tinytext", About),
@@ -309,7 +338,15 @@ fn app_menus() -> Vec<Menu> {
             MenuItem::action("Next Tab", NextTab),
             MenuItem::action("Previous Tab", PreviousTab),
             MenuItem::separator(),
-            MenuItem::action("Toggle Light/Dark Theme", ToggleTheme),
+            MenuItem::submenu(theme_menu(theme)),
         ]),
     ]
+}
+
+/// The Appearance submenu: one item per choice, with a check mark on the active
+/// one.
+fn theme_menu(theme: &str) -> Menu {
+    Menu::new("Appearance").items(THEME_CHOICES.iter().map(|(value, label)| {
+        MenuItem::action(*label, SetTheme((*value).to_string())).checked(*value == theme)
+    }))
 }
