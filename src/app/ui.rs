@@ -1,5 +1,8 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ops::Range;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use gpui_kit::base::{InteractiveElementExt as _, StyledExt as _};
@@ -23,6 +26,7 @@ use gpui_kit::*;
 use crate::file_icons::{file_icon, folder_icon};
 use crate::language::{LANGUAGES, editor_language_id};
 use crate::paths::{display_path, file_name};
+use crate::settings::IconStyle;
 use crate::{AddFolder, CopyFilePath, CopyRelativePath, NewFile, OpenFile, RevealInFinder};
 
 use super::TinytextApp;
@@ -57,6 +61,62 @@ fn status_dot(visible: bool, color: Hsla) -> Div {
         })
 }
 
+/// Logical edge length of a file-type icon, matching `Size::Small` (0.875rem).
+const FILE_ICON_SIZE: f32 = 14.;
+/// Rasterized edge length of a colorful icon. Twice [`FILE_ICON_SIZE`] keeps it
+/// sharp on Retina displays; the image element downsamples it to fit.
+const COLOR_ICON_PIXELS: i32 = 28;
+
+thread_local! {
+    /// Full-color rasterizations keyed by the address of their static SVG bytes.
+    /// `RenderImage::new` mints a fresh id every call, so reusing one cached
+    /// image is what keeps the sprite atlas from growing on every frame.
+    static COLOR_ICON_CACHE: RefCell<HashMap<usize, Arc<RenderImage>>> =
+        RefCell::new(HashMap::new());
+}
+
+/// A file-type icon for the sidebar and tabs. GPUI's `svg` element — and the
+/// `Icon` component built on it — flattens an SVG to a single tinted color, so
+/// the colorful style draws the vendored SVG through the image pipeline
+/// instead, which preserves its fills.
+fn file_type_icon(bytes: &'static [u8], style: IconStyle, cx: &App) -> AnyElement {
+    if style == IconStyle::Colorful
+        && let Some(image) = colored_icon(bytes, cx)
+    {
+        return img(image)
+            .w(px(FILE_ICON_SIZE))
+            .h(px(FILE_ICON_SIZE))
+            .flex_none()
+            .into_any_element();
+    }
+
+    Icon::empty()
+        .data(bytes)
+        .with_size(Size::Small)
+        .flex_none()
+        .into_any_element()
+}
+
+/// Rasterizes `bytes` in full color, caching the result. `None` only when the
+/// SVG cannot be parsed, in which case the caller falls back to the monochrome
+/// icon.
+fn colored_icon(bytes: &'static [u8], cx: &App) -> Option<Arc<RenderImage>> {
+    let key = bytes.as_ptr() as usize;
+    if let Some(image) = COLOR_ICON_CACHE.with(|cache| cache.borrow().get(&key).cloned()) {
+        return Some(image);
+    }
+
+    let renderer = cx.svg_renderer();
+    let parsed = renderer.parse_svg(bytes).ok()?;
+    let size = gpui_kit::Size::new(
+        DevicePixels(COLOR_ICON_PIXELS),
+        DevicePixels(COLOR_ICON_PIXELS),
+    );
+    let image = renderer.render_parsed(&parsed, SvgSize::Size(size)).ok()?;
+    COLOR_ICON_CACHE.with(|cache| cache.borrow_mut().insert(key, image.clone()));
+    Some(image)
+}
+
 impl TinytextApp {
     pub(super) fn render_tab_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = cx.entity();
@@ -75,6 +135,7 @@ impl TinytextApp {
         let active_fg = theme.foreground;
         let accent = theme.blue;
         let show_icons = self.settings.ui.tab_icons();
+        let icon_style = self.settings.ui.icon_style();
 
         let tabs: Vec<Stateful<Div>> = self
             .tabs
@@ -129,12 +190,7 @@ impl TinytextApp {
                     .when(show_icons, |this| {
                         // Untitled tabs have no path and fall back to the default file icon.
                         let path = tab.path.as_deref().unwrap_or(Path::new(""));
-                        this.child(
-                            Icon::empty()
-                                .data(file_icon(path))
-                                .with_size(Size::Small)
-                                .flex_none(),
-                        )
+                        this.child(file_type_icon(file_icon(path), icon_style, cx))
                     })
                     .child(
                         div()
@@ -468,12 +524,12 @@ impl TinytextApp {
             div().w(px(14.)).into_any_element()
         };
 
+        let icon_style = self.settings.ui.icon_style();
         let type_icon = if is_dir {
-            Icon::empty().data(folder_icon())
+            file_type_icon(folder_icon(), icon_style, cx)
         } else {
-            Icon::empty().data(file_icon(path))
-        }
-        .with_size(Size::Small);
+            file_type_icon(file_icon(path), icon_style, cx)
+        };
 
         let click_path = path.to_path_buf();
         let label = file_name(path);
@@ -844,5 +900,62 @@ impl TinytextApp {
             .right(language_button)
             .right(divider())
             .right(save_status)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    use std::sync::Arc;
+
+    use gpui_kit::{DevicePixels, RenderImage, SvgRenderer, SvgSize};
+
+    use crate::file_icons::file_icon;
+
+    use super::COLOR_ICON_PIXELS;
+
+    fn rasterize(bytes: &'static [u8]) -> Arc<RenderImage> {
+        let renderer = SvgRenderer::new(Arc::new(()));
+        let parsed = renderer.parse_svg(bytes).unwrap();
+        let size = gpui_kit::Size::new(
+            DevicePixels(COLOR_ICON_PIXELS),
+            DevicePixels(COLOR_ICON_PIXELS),
+        );
+        renderer
+            .render_parsed(&parsed, SvgSize::Size(size))
+            .unwrap()
+    }
+
+    #[test]
+    fn colorful_icons_are_square_at_the_cached_size() {
+        // Icons ship at different intrinsic sizes (16px and 32px viewBoxes); the
+        // requested size must yield a uniform square raster either way.
+        for bytes in [
+            file_icon(Path::new("main.rs")),
+            file_icon(Path::new("notes.txt")),
+        ] {
+            let image = rasterize(bytes);
+            assert_eq!(
+                image.size(0),
+                gpui_kit::Size::new(
+                    DevicePixels(COLOR_ICON_PIXELS),
+                    DevicePixels(COLOR_ICON_PIXELS)
+                ),
+            );
+        }
+    }
+
+    #[test]
+    fn colorful_icons_keep_the_svg_fill_color() {
+        // Rust's icon is brand orange (#ff7043). The tinted `svg` element would
+        // flatten it to one theme color, so a red-leaning opaque pixel proves
+        // the image path preserved the fill. RenderImage bytes are BGRA.
+        let image = rasterize(file_icon(Path::new("main.rs")));
+        let (pixels, _) = image.as_bytes(0).unwrap().as_chunks::<4>();
+        assert!(
+            pixels
+                .iter()
+                .any(|pixel| pixel[3] > 0 && pixel[2] > pixel[0].saturating_add(40)),
+        );
     }
 }

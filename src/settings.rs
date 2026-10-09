@@ -15,6 +15,24 @@ pub(crate) const DEFAULT_TAB_SIZE: usize = 4;
 /// stays free of GPUI types.
 pub(crate) const DEFAULT_THEME: &str = "dark";
 
+/// File-icon style that keeps each type's own colors (the Material Icon Theme
+/// palette). The default, and the `ui.icon_color` value it maps to.
+pub(crate) const ICON_STYLE_COLORFUL: &str = "colorful";
+/// File-icon style that paints every icon as a single color following the theme.
+pub(crate) const ICON_STYLE_MONOCHROME: &str = "monochrome";
+/// Icon style used when `ui.icon_color` is unset.
+pub(crate) const DEFAULT_ICON_STYLE: &str = ICON_STYLE_COLORFUL;
+
+/// How file-type icons are painted. Kept GPUI-free; the renderer maps it to the
+/// right element.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IconStyle {
+    /// Each file type keeps its own colors.
+    Colorful,
+    /// A single silhouette that follows the theme's foreground color.
+    Monochrome,
+}
+
 /// Suggested when the configured family has no close match; only installed
 /// ones are shown.
 const MONOSPACE_FONTS: &[&str] = &[
@@ -90,6 +108,7 @@ impl EditorSettings {
 pub(crate) struct UiSettings {
     pub(crate) theme: Option<String>,
     pub(crate) tab_icons: Option<bool>,
+    pub(crate) icon_color: Option<String>,
 }
 
 impl UiSettings {
@@ -99,6 +118,19 @@ impl UiSettings {
 
     pub(crate) fn tab_icons(&self) -> bool {
         self.tab_icons.unwrap_or(true)
+    }
+
+    pub(crate) fn icon_color(&self) -> &str {
+        self.icon_color.as_deref().unwrap_or(DEFAULT_ICON_STYLE)
+    }
+
+    /// Resolves `ui.icon_color`, falling back to the default for a value the
+    /// renderer does not know.
+    pub(crate) fn icon_style(&self) -> IconStyle {
+        match self.icon_color() {
+            ICON_STYLE_MONOCHROME => IconStyle::Monochrome,
+            _ => IconStyle::Colorful,
+        }
     }
 }
 
@@ -273,6 +305,15 @@ pub(crate) fn save_tab_icons(enabled: bool) -> Result<String, String> {
     save_setting("ui", "tab_icons", Some(serde_json::Value::Bool(enabled)))
 }
 
+/// Records the file-icon style (`ui.icon_color`).
+pub(crate) fn save_icon_color(style: &str) -> Result<String, String> {
+    save_setting(
+        "ui",
+        "icon_color",
+        Some(serde_json::Value::String(style.to_string())),
+    )
+}
+
 /// Explains why `family` will not render, with installed names to use instead.
 pub(crate) fn font_family_issue(family: &str, installed: &[String]) -> Option<String> {
     if installed.iter().any(|name| name == family) {
@@ -380,6 +421,24 @@ mod tests {
 
         let settings = parse_settings(r#"{"ui": {"tab_icons": false}}"#).unwrap();
         assert!(!settings.ui.tab_icons());
+    }
+
+    #[test]
+    fn ui_icon_style_defaults_and_parses() {
+        assert_eq!(Settings::default().ui.icon_color(), DEFAULT_ICON_STYLE);
+        assert_eq!(Settings::default().ui.icon_style(), IconStyle::Colorful);
+
+        let settings = parse_settings(r#"{"ui": {"icon_color": "monochrome"}}"#).unwrap();
+        assert_eq!(settings.ui.icon_style(), IconStyle::Monochrome);
+
+        let settings = parse_settings(r#"{"ui": {"icon_color": "colorful"}}"#).unwrap();
+        assert_eq!(settings.ui.icon_style(), IconStyle::Colorful);
+    }
+
+    #[test]
+    fn ui_icon_style_falls_back_for_unknown_values() {
+        let settings = parse_settings(r#"{"ui": {"icon_color": "neon"}}"#).unwrap();
+        assert_eq!(settings.ui.icon_style(), IconStyle::Colorful);
     }
 
     fn text(value: &str) -> Option<serde_json::Value> {

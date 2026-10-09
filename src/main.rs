@@ -18,7 +18,9 @@ use app::{TinytextApp, WINDOW_TITLE};
 use cli::{CliCommand, parse_args, print_help};
 use paths::path_from_file_url;
 use session::load_session;
-use settings::{DEFAULT_FONT_WEIGHT, DEFAULT_THEME, load_settings};
+use settings::{
+    DEFAULT_FONT_WEIGHT, DEFAULT_THEME, ICON_STYLE_COLORFUL, ICON_STYLE_MONOCHROME, load_settings,
+};
 
 gpui_kit::actions!(
     tinytext,
@@ -229,6 +231,12 @@ pub(crate) const THEME_CHOICES: [(&str, &str); 3] = [
     ("light", "Light"),
     ("dark", "Dark"),
     (THEME_SYSTEM, "System"),
+];
+
+/// The file-icon style choices as `(ui.icon_color value, label)`, in menu order.
+pub(crate) const ICON_STYLE_CHOICES: [(&str, &str); 2] = [
+    (ICON_STYLE_COLORFUL, "Colorful"),
+    (ICON_STYLE_MONOCHROME, "Monochrome"),
 ];
 
 /// Maps an explicit string form of `ui.theme` (kept GPUI-free in settings.rs) to

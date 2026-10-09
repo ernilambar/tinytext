@@ -24,9 +24,10 @@ use gpui_kit::component::{
 use gpui_kit::*;
 
 use crate::settings::{
-    DEFAULT_FONT_WEIGHT, DEFAULT_TAB_SIZE, DEFAULT_THEME, MAX_FONT_SIZE, MIN_FONT_SIZE,
-    save_font_family, save_font_size, save_font_weight, save_hard_tabs, save_show_whitespace,
-    save_soft_wrap, save_tab_icons, save_tab_size, save_theme,
+    DEFAULT_FONT_WEIGHT, DEFAULT_ICON_STYLE, DEFAULT_TAB_SIZE, DEFAULT_THEME, MAX_FONT_SIZE,
+    MIN_FONT_SIZE, save_font_family, save_font_size, save_font_weight, save_hard_tabs,
+    save_icon_color, save_show_whitespace, save_soft_wrap, save_tab_icons, save_tab_size,
+    save_theme,
 };
 
 use super::TinytextApp;
@@ -80,6 +81,7 @@ impl TinytextApp {
         let show_whitespace = editor.show_whitespace();
         let theme_value = ui.theme().to_string();
         let tab_icons = ui.tab_icons();
+        let icon_color: SharedString = ui.icon_color().into();
 
         let family_weak = weak.clone();
         let family_value = font_family.clone();
@@ -231,6 +233,25 @@ impl TinytextApp {
         )
         .description("Show a file-type icon on each tab.");
 
+        let icon_color_weak = weak.clone();
+        let icon_color_item = SettingItem::new(
+            "File Icon Style",
+            SettingField::dropdown(
+                crate::ICON_STYLE_CHOICES
+                    .iter()
+                    .map(|(value, label)| (SharedString::from(*value), SharedString::from(*label)))
+                    .collect::<Vec<_>>(),
+                move |_cx| icon_color.clone(),
+                move |value, cx| {
+                    icon_color_weak
+                        .update(cx, |this, cx| this.set_ui_icon_color(value.to_string(), cx))
+                        .ok();
+                },
+            )
+            .default_value(SharedString::from(DEFAULT_ICON_STYLE)),
+        )
+        .description("Colored file-type icons, or a single color that follows the theme.");
+
         let pages = vec![
             SettingPage::new("Editor").default_open(true).groups(vec![
                 SettingGroup::new().title("Font").items(vec![
@@ -249,7 +270,7 @@ impl TinytextApp {
                 SettingGroup::new().title("Theme").items(vec![theme_item]),
                 SettingGroup::new()
                     .title("Interface")
-                    .items(vec![tab_icons_item]),
+                    .items(vec![tab_icons_item, icon_color_item]),
             ]),
         ];
 
@@ -365,6 +386,11 @@ impl TinytextApp {
     fn set_ui_tab_icons(&mut self, enabled: bool, cx: &mut Context<Self>) {
         self.settings.ui.tab_icons = Some(enabled);
         self.record_write(save_tab_icons(enabled), cx);
+    }
+
+    fn set_ui_icon_color(&mut self, style: String, cx: &mut Context<Self>) {
+        self.settings.ui.icon_color = Some(style.clone());
+        self.record_write(save_icon_color(&style), cx);
     }
 
     fn set_editor_soft_wrap(&mut self, wrap: bool, window: &mut Window, cx: &mut Context<Self>) {
