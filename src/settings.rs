@@ -240,6 +240,39 @@ pub(crate) fn save_font_size(size: Option<f32>) -> Result<String, String> {
     )
 }
 
+/// Records the editor font family (`editor.font_family`).
+pub(crate) fn save_font_family(family: &str) -> Result<String, String> {
+    save_setting(
+        "editor",
+        "font_family",
+        Some(serde_json::Value::String(family.to_string())),
+    )
+}
+
+/// Records the editor font weight (`editor.font_weight`).
+pub(crate) fn save_font_weight(weight: f32) -> Result<String, String> {
+    save_setting("editor", "font_weight", Some(serde_json::json!(weight)))
+}
+
+/// Records the indentation width (`editor.tab_size`).
+pub(crate) fn save_tab_size(size: usize) -> Result<String, String> {
+    save_setting("editor", "tab_size", Some(serde_json::json!(size)))
+}
+
+/// Records whether indentation uses hard tabs (`editor.hard_tabs`).
+pub(crate) fn save_hard_tabs(enabled: bool) -> Result<String, String> {
+    save_setting(
+        "editor",
+        "hard_tabs",
+        Some(serde_json::Value::Bool(enabled)),
+    )
+}
+
+/// Records the sidebar tab-icon preference (`ui.tab_icons`).
+pub(crate) fn save_tab_icons(enabled: bool) -> Result<String, String> {
+    save_setting("ui", "tab_icons", Some(serde_json::Value::Bool(enabled)))
+}
+
 /// Explains why `family` will not render, with installed names to use instead.
 pub(crate) fn font_family_issue(family: &str, installed: &[String]) -> Option<String> {
     if installed.iter().any(|name| name == family) {

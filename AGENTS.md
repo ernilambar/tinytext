@@ -58,9 +58,9 @@ in headless environments.
   boundary.
 - `session.json` (app-written state) and `settings.json` (user-authored preferences) both
   live in `paths::support_dir()`. The app writes `settings.json` only to create a starter
-  file or to record the choices made from the theme, word-wrap, whitespace and zoom
-  toggles; it never otherwise rewrites the user's preferences. Group new settings keys by
-  area (`editor.*`, `ui.*`).
+  file or to record a choice made from the Settings overlay or a view toggle. Each write is
+  a surgical `section.key` update that never rewrites unrelated keys. Group new settings
+  keys by area (`editor.*`, `ui.*`).
 - This project targets macOS only. Do not add cross-platform code paths.
 
 ## Releasing
