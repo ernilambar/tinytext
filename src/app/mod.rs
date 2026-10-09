@@ -1,6 +1,7 @@
 mod editor;
 mod files;
 mod palette;
+mod preferences;
 mod tabs;
 mod ui;
 
@@ -107,6 +108,11 @@ pub(crate) struct TinytextApp {
     cursor_line: usize,
     cursor_col: usize,
     settings: Settings,
+    /// Whether the Settings overlay is showing.
+    settings_open: bool,
+    /// A settings write that could not be reported through a notification,
+    /// surfaced in the overlay instead.
+    settings_error: Option<SharedString>,
     /// The window title currently applied, so it is only pushed to the platform
     /// when the focused tab changes.
     window_title: String,
@@ -157,6 +163,8 @@ impl TinytextApp {
             cursor_line: 1,
             cursor_col: 1,
             settings,
+            settings_open: false,
+            settings_error: None,
             window_title: WINDOW_TITLE.to_string(),
             allow_close: false,
         };
@@ -710,7 +718,15 @@ impl TinytextApp {
         .detach();
     }
 
-    fn on_open_settings(&mut self, _: &OpenSettings, window: &mut Window, cx: &mut Context<Self>) {
+    fn on_open_settings(&mut self, _: &OpenSettings, _window: &mut Window, cx: &mut Context<Self>) {
+        self.settings_open = !self.settings_open;
+        self.settings_error = None;
+        cx.notify();
+    }
+
+    /// Opens `settings.json` as a text tab, creating a starter file on first
+    /// use. Reached from the Settings overlay for direct edits.
+    pub(super) fn open_settings_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(path) = settings_path() else {
             return;
         };
@@ -869,6 +885,7 @@ impl Render for TinytextApp {
             .palette
             .clone()
             .map(|state| self.render_palette(&state, cx));
+        let settings_overlay = self.settings_open.then(|| self.render_settings(cx));
 
         let root = div()
             .id("tinytext-root")
@@ -921,7 +938,12 @@ impl Render for TinytextApp {
             .child(self.render_workspace(window, cx))
             .child(self.render_status_bar(cx));
 
-        match palette {
+        let root = match palette {
+            Some(overlay) => root.child(overlay),
+            None => root,
+        };
+
+        match settings_overlay {
             Some(overlay) => root.child(overlay).into_any_element(),
             None => root.into_any_element(),
         }
